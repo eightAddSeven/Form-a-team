@@ -26,6 +26,9 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const showDropdown = ref(false)
 
@@ -65,8 +68,7 @@ const colleges = ref([
 ])
 
 const handleProjectClick = (project) => {
-  console.log('点击科研项目:', project)
-  // 可以添加路由跳转等逻辑
+  router.push({ path: '/search', query: { tag: project } })
 }
 </script>
 
@@ -80,6 +82,13 @@ const handleProjectClick = (project) => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  color: #3c4a5a;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.nav-item:hover .nav-link {
+  color: #004e9e;
 }
 
 .arrow-down {

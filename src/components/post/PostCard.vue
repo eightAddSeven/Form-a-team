@@ -1,67 +1,169 @@
 <template>
   <div class="post-card" @click="$emit('click', post)">
     <div class="post-header">
-      <UserAvatar :size="40" />
+      <img 
+        :src="post.author?.avatar || defaultAvatar" 
+        alt="avatar" 
+        class="author-avatar"
+        @click.stop="goToProfile"
+      />
       <div class="post-info">
         <div class="author-info">
-          <span class="author-name">{{ post.author }}</span>
-          <span class="post-time">{{ post.time }}</span>
+          <span class="author-name" @click.stop="goToProfile">
+            {{ post.author?.nickname || '匿名用户' }}
+          </span>
+          <span class="post-time">{{ formatTime(post.createdAt) }}</span>
         </div>
-        <h4 class="post-title">{{ post.title }}</h4>
+        <h4 class="post-title">{{ post.title || '无标题' }}</h4>
       </div>
     </div>
     
     <div class="post-content">
-      <p>{{ post.content }}</p>
+      <p>{{ truncateContent(post.content) }}</p>
     </div>
     
     <div class="post-tags" v-if="post.tags && post.tags.length">
-      <span class="tag" v-for="tag in post.tags" :key="tag">{{ tag }}</span>
+      <span 
+        class="tag" 
+        v-for="tag in post.tags.slice(0, 3)" 
+        :key="tag"
+        @click.stop="searchByTag(tag)"
+      >
+        #{{ tag }}
+      </span>
+      <span v-if="post.tags.length > 3" class="tag more">
+        +{{ post.tags.length - 3 }}
+      </span>
     </div>
     
     <div class="post-actions">
-      <button class="action-btn" @click.stop="$emit('like', post)">
-        <span>❤️</span> {{ post.likes || 0 }}
+      <button 
+        class="action-btn" 
+        @click.stop="handleLike"
+        :class="{ active: post.isLiked }"
+      >
+        <span>{{ post.isLiked ? '❤️' : '🤍' }}</span>
+        {{ post.likes?.length || post.likes || 0 }}
       </button>
-      <button class="action-btn" @click.stop="$emit('comment', post)">
-        <span>💬</span> {{ post.comments || 0 }}
+      <button class="action-btn" @click.stop="handleComment">
+        <span>💬</span>
+        {{ post.comments?.length || post.comments || 0 }}
       </button>
-      <button class="action-btn">
-        <span>📤</span> 分享
+      <button class="action-btn" @click.stop="handleShare">
+        <span>📤</span>
+        分享
+      </button>
+      <button 
+        class="action-btn" 
+        @click.stop="handleCollect"
+        :class="{ active: post.isCollected }"
+      >
+        <span>{{ post.isCollected ? '⭐' : '☆' }}</span>
+        收藏
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import UserAvatar from '@/components/common/UserAvatar.vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
-defineProps({
+const props = defineProps({
   post: {
     type: Object,
     required: true
   }
 })
 
-defineEmits(['click', 'like', 'comment'])
+const emit = defineEmits(['click', 'like', 'comment', 'share', 'collect'])
+
+const router = useRouter()
+
+const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
+
+// 格式化时间
+const formatTime = (time) => {
+  if (!time) return ''
+  const date = new Date(time)
+  const now = new Date()
+  const diff = now - date
+  
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
+  if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
+  
+  return date.toLocaleDateString('zh-CN', { 
+    month: 'numeric', 
+    day: 'numeric' 
+  })
+}
+
+// 截断内容
+const truncateContent = (content) => {
+  if (!content) return ''
+  return content.length > 150 ? content.slice(0, 150) + '...' : content
+}
+
+// 跳转到用户主页
+const goToProfile = () => {
+  const authorId = props.post.author?.id || props.post.author?._id
+  if (authorId) {
+    router.push(`/profile/${authorId}`)
+  }
+}
+
+// 按标签搜索
+const searchByTag = (tag) => {
+  router.push({ path: '/search', query: { tag } })
+}
+
+const handleLike = () => {
+  emit('like', props.post)
+}
+
+const handleComment = () => {
+  emit('comment', props.post)
+}
+
+const handleShare = () => {
+  emit('share', props.post)
+}
+
+const handleCollect = () => {
+  emit('collect', props.post)
+}
 </script>
 
 <style scoped>
 .post-card {
   padding: 20px;
-  border-bottom: 1px solid #f0f3f8;
+  background: white;
+  border-radius: 12px;
+  margin-bottom: 16px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
+  border: 1px solid #edf1f7;
 }
 
 .post-card:hover {
-  background: #fafbfc;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #004e9e;
 }
 
 .post-header {
   display: flex;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.author-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  cursor: pointer;
 }
 
 .post-info {
@@ -79,6 +181,11 @@ defineEmits(['click', 'like', 'comment'])
   font-weight: 600;
   color: #1e293b;
   font-size: 14px;
+  cursor: pointer;
+}
+
+.author-name:hover {
+  color: #004e9e;
 }
 
 .post-time {
@@ -88,8 +195,13 @@ defineEmits(['click', 'like', 'comment'])
 
 .post-title {
   font-size: 16px;
+  font-weight: 600;
   color: #1e293b;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+}
+
+.post-title:hover {
+  color: #004e9e;
 }
 
 .post-content {
@@ -114,6 +226,13 @@ defineEmits(['click', 'like', 'comment'])
   border-radius: 16px;
   font-size: 12px;
   color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tag:hover {
+  background: #004e9e;
+  color: white;
 }
 
 .post-actions {
@@ -122,22 +241,26 @@ defineEmits(['click', 'like', 'comment'])
   gap: 20px;
 }
 
-.post-actions .action-btn {
+.action-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 6px 12px;
   background: transparent;
   border: none;
   border-radius: 20px;
   color: #64748b;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.post-actions .action-btn:hover {
+.action-btn:hover {
   background: #f1f5f9;
   color: #004e9e;
+}
+
+.action-btn.active {
+  color: #ef4444;
 }
 </style>

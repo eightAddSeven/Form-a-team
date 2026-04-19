@@ -24,6 +24,10 @@
 </template>
 
 <script setup>
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
 const props = defineProps({
   level: {
     type: String,
@@ -42,9 +46,7 @@ const props = defineProps({
 const emit = defineEmits(['tagClick'])
 
 const handleTagClick = (tag) => {
-  emit('tagClick', tag)
-  // 可以在这里添加路由跳转或其他逻辑
-  console.log('点击标签:', tag)
+  router.push({ path: '/search', query: { tag } })
 }
 </script>
 

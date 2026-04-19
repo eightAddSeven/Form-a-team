@@ -1,0 +1,470 @@
+<template>
+  <div class="search-result-container">
+    <!-- 搜索头部 -->
+    <div class="search-header">
+      <h2>
+        <span v-if="tagInfo" class="tag-badge" :class="tagInfo.source">
+          {{ tagInfo.source === 'competition' ? '🏆' : '🔬' }}
+        </span>
+        <span v-else-if="searchQuery" class="query-icon">🔍</span>
+        {{ pageTitle }}
+      </h2>
+      <p class="result-count">
+        {{ loading ? '搜索中...' : `共找到 ${posts.length} 篇相关帖子` }}
+      </p>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="content-layout">
+      <!-- 左侧帖子列表 -->
+      <div class="left-content">
+        <!-- 空状态 -->
+        <div v-if="!loading && posts.length === 0" class="empty-state">
+          <span class="empty-icon">📭</span>
+          <p>暂无相关帖子</p>
+          <p class="empty-tip">试试其他关键词吧</p>
+        </div>
+        
+        <!-- 帖子列表 -->
+        <PostList 
+          v-else
+          :posts="posts"
+          :loading="loading"
+          :has-more="hasMore"
+          @loadMore="loadMore"
+        />
+      </div>
+      
+      <!-- 右侧边栏 -->
+      <div class="right-sidebar">
+        <!-- 筛选卡片 -->
+        <div class="filter-card">
+          <h4>筛选</h4>
+          <div class="filter-group">
+            <label>排序方式</label>
+            <select v-model="sortBy" @change="handleSortChange">
+              <option value="latest">📅 最新发布</option>
+              <option value="hot">🔥 最热</option>
+              <option value="relevant">🎯 最相关</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>时间范围</label>
+            <select v-model="timeRange" @change="handleFilterChange">
+              <option value="all">全部时间</option>
+              <option value="day">最近一天</option>
+              <option value="week">最近一周</option>
+              <option value="month">最近一月</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- 相关标签推荐 -->
+        <div class="related-tags-card" v-if="relatedTags.length > 0">
+          <h4>相关标签</h4>
+          <div class="related-tags">
+            <span 
+              v-for="tag in relatedTags" 
+              :key="tag.name"
+              class="related-tag"
+              @click="searchByTag(tag)"
+            >
+              <span class="tag-icon">{{ tag.source === 'competition' ? '🏆' : '🔬' }}</span>
+              <span class="tag-name">{{ tag.displayName || tag.name }}</span>
+              <span class="tag-count">{{ tag.count }}</span>
+            </span>
+          </div>
+        </div>
+        
+        <!-- 搜索提示 -->
+        <div class="search-tips-card">
+          <h4>💡 搜索提示</h4>
+          <ul class="tips-list">
+            <li>使用具体的关键词可以获得更精确的结果</li>
+            <li>可以按标签筛选相关内容</li>
+            <li>试试搜索竞赛名称或科研方向</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useTagStore } from '@/stores/tagStore'
+import { usePostStore } from '@/stores/post'
+import PostList from '@/components/post/PostList.vue'
+
+const route = useRoute()
+const router = useRouter()
+const tagStore = useTagStore()
+const postStore = usePostStore()
+
+// 状态
+const loading = ref(false)
+const posts = ref([])
+const hasMore = ref(true)
+const currentPage = ref(1)
+const sortBy = ref('latest')
+const timeRange = ref('all')
+const relatedTags = ref([])
+
+// 搜索参数
+const searchQuery = computed(() => route.query.q || '')
+const searchTag = computed(() => route.query.tag || '')
+
+// 标签信息
+const tagInfo = computed(() => {
+  if (!searchTag.value) return null
+  return tagStore.allTags.find(t => t.displayName === searchTag.value)
+})
+
+// 页面标题
+const pageTitle = computed(() => {
+  if (tagInfo.value) {
+    return `#${tagInfo.value.displayName}`
+  }
+  if (searchQuery.value) {
+    return `"${searchQuery.value}"`
+  }
+  return '搜索'
+})
+
+// 获取帖子列表
+const fetchPosts = async (isLoadMore = false) => {
+  if (loading.value) return
+  
+  loading.value = true
+  
+  if (!isLoadMore) {
+    currentPage.value = 1
+    posts.value = []
+  }
+  
+  try {
+    // 构建搜索参数
+    const params = {
+      page: currentPage.value,
+      pageSize: 10,
+      sortBy: sortBy.value,
+      timeRange: timeRange.value
+    }
+    
+    // 添加搜索条件
+    if (searchQuery.value) {
+      params.keyword = searchQuery.value
+    }
+    if (searchTag.value) {
+      params.tag = searchTag.value
+    }
+    
+    // 调用 store 获取帖子
+    const result = await postStore.searchPosts(params)
+    
+    if (result.success) {
+      if (isLoadMore) {
+        posts.value.push(...result.data)
+      } else {
+        posts.value = result.data
+      }
+      hasMore.value = result.hasMore
+      
+      // 更新相关标签
+      updateRelatedTags(result.relatedTags || [])
+    }
+  } catch (error) {
+    console.error('搜索失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 更新相关标签
+const updateRelatedTags = (tags) => {
+  // 过滤掉当前搜索的标签
+  relatedTags.value = tags.filter(t => 
+    t.displayName !== searchTag.value
+  ).slice(0, 8)
+}
+
+// 加载更多
+const loadMore = () => {
+  if (!loading.value && hasMore.value) {
+    currentPage.value++
+    fetchPosts(true)
+  }
+}
+
+// 排序变化
+const handleSortChange = () => {
+  fetchPosts()
+}
+
+// 筛选变化
+const handleFilterChange = () => {
+  fetchPosts()
+}
+
+// 按标签搜索
+const searchByTag = (tag) => {
+  router.push({ 
+    path: '/search', 
+    query: { tag: tag.displayName || tag.name } 
+  })
+}
+
+// 刷新搜索
+const refreshSearch = () => {
+  fetchPosts()
+}
+
+// 监听路由变化
+watch(
+  () => [route.query.q, route.query.tag],
+  ([newQuery, newTag]) => {
+    // 重置状态
+    currentPage.value = 1
+    posts.value = []
+    hasMore.value = true
+    
+    // 保存搜索标签到 store
+    if (newTag) {
+      tagStore.setSearchTag(newTag)
+    }
+    
+    // 执行搜索
+    fetchPosts()
+  },
+  { immediate: true }
+)
+
+// 暴露方法给父组件
+defineExpose({
+  refreshSearch
+})
+</script>
+
+<style scoped>
+.search-result-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.search-header {
+  margin-bottom: 24px;
+}
+
+.search-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 26px;
+  color: #1e293b;
+}
+
+.tag-badge {
+  font-size: 28px;
+}
+
+.tag-badge.competition {
+  color: #d97706;
+}
+
+.tag-badge.research {
+  color: #16a34a;
+}
+
+.query-icon {
+  font-size: 24px;
+  color: #64748b;
+}
+
+.result-count {
+  color: #94a3b8;
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.content-layout {
+  display: flex;
+  gap: 24px;
+}
+
+.left-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.right-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 空状态 */
+.empty-state {
+  background: white;
+  border-radius: 16px;
+  padding: 60px 40px;
+  text-align: center;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  color: #64748b;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.empty-tip {
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+/* 卡片样式 */
+.filter-card,
+.related-tags-card,
+.search-tips-card {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  border: 1px solid #edf1f7;
+}
+
+.filter-card h4,
+.related-tags-card h4,
+.search-tips-card h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 16px;
+}
+
+.filter-group {
+  margin-bottom: 16px;
+}
+
+.filter-group:last-child {
+  margin-bottom: 0;
+}
+
+.filter-group label {
+  display: block;
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.filter-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1e293b;
+  background: white;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.filter-group select:hover {
+  border-color: #004e9e;
+}
+
+.filter-group select:focus {
+  border-color: #004e9e;
+  box-shadow: 0 0 0 3px rgba(0, 78, 158, 0.1);
+}
+
+/* 相关标签 */
+.related-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.related-tag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.related-tag:hover {
+  background: #e8f0fe;
+  transform: translateX(4px);
+}
+
+.tag-icon {
+  font-size: 16px;
+}
+
+.tag-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.tag-count {
+  font-size: 12px;
+  padding: 2px 8px;
+  background: #e2e8f0;
+  border-radius: 12px;
+  color: #64748b;
+}
+
+/* 搜索提示 */
+.tips-list {
+  list-style: none;
+  padding: 0;
+}
+
+.tips-list li {
+  position: relative;
+  padding: 8px 0 8px 20px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.tips-list li::before {
+  content: '•';
+  position: absolute;
+  left: 6px;
+  color: #004e9e;
+  font-weight: bold;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .content-layout {
+    flex-direction: column;
+  }
+  
+  .right-sidebar {
+    width: 100%;
+    order: -1;
+  }
+  
+  .search-header h2 {
+    font-size: 20px;
+  }
+}
+</style>

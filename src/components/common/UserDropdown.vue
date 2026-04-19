@@ -1,18 +1,21 @@
 <template>
   <div class="user-dropdown" @click="toggleDropdown">
-    <img :src="avatarUrl" alt="avatar" class="avatar" />
-    <span class="username">{{ username }}</span>
+    <img :src="userAvatar" alt="avatar" class="avatar" />
+    <span class="username">{{ displayName }}</span>
     <span class="arrow">▼</span>
     
     <div class="dropdown-menu" v-show="showDropdown" @click.stop>
       <div class="menu-item" @click="goToProfile">
         <span>👤</span> 个人中心
       </div>
+      <div class="menu-item" @click="goToMessages">
+        <span>💬</span> 我的消息
+      </div>
       <div class="menu-item" @click="goToSettings">
         <span>⚙️</span> 设置
       </div>
       <div class="divider"></div>
-      <div class="menu-item" @click="logout">
+      <div class="menu-item" @click="handleLogout">
         <span>🚪</span> 退出登录
       </div>
     </div>
@@ -20,13 +23,22 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '@/stores/user'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
+const userStore = useUserStore()
 const showDropdown = ref(false)
-const username = ref('李同学')
-const avatarUrl = ref('data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E')
+
+const userAvatar = computed(() => 
+  userStore.userInfo?.avatar || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
+)
+
+const displayName = computed(() => 
+  userStore.userInfo?.nickname || userStore.userInfo?.username || '游客'
+)
 
 const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value
@@ -37,14 +49,21 @@ const goToProfile = () => {
   router.push('/profile')
 }
 
-const goToSettings = () => {
+const goToMessages = () => {
   showDropdown.value = false
-  router.push('/settings')
+  router.push('/messages')
 }
 
-const logout = () => {
+const goToSettings = () => {
   showDropdown.value = false
-  console.log('退出登录')
+  ElMessage.info('设置功能开发中...')
+}
+
+const handleLogout = () => {
+  showDropdown.value = false
+  userStore.logout()
+  ElMessage.success('已退出登录')
+  router.push('/')
 }
 </script>
 

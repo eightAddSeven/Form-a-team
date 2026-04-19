@@ -1,28 +1,32 @@
 <template>
   <div class="main-layout">
-    <!-- 左侧区域 4/5 -->
+    <!-- 左侧区域 -->
     <div class="left-content">
-      <!-- 上方：发布框 -->
+      <!-- 发布框 -->
       <PostCreator @submit="handlePostSubmit" />
       
-      <!-- 下方：帖子列表 -->
+      <!-- 帖子列表 -->
       <PostList 
-        :posts="postList" 
-        :has-more="hasMore"
+        :posts="currentPosts"
+        :loading="postStore.loading"
+        :loading-more="postStore.loadingMore"
+        :has-more="postStore.hasMore"
         @loadMore="handleLoadMore"
-        @postClick="handlePostClick"
+        @tabChange="handleTabChange"
+        @filterChange="handleFilterChange"
         @like="handleLike"
         @comment="handleComment"
+        @share="handleShare"
+        @collect="handleCollect"
       />
     </div>
     
-    <!-- 右侧区域 1/5 -->
+    <!-- 右侧区域 -->
     <div class="right-sidebar">
       <!-- 热搜榜 -->
       <HotSearch 
         :items="hotSearchList" 
         @itemClick="handleHotSearchClick"
-        @viewMore="handleViewMoreHotSearch"
       />
       
       <!-- 热门话题 -->
@@ -30,163 +34,211 @@
         :tags="hotTopics" 
         @tagClick="handleTopicClick"
       />
+      
+      <!-- 推荐用户 -->
+      <div class="recommend-card">
+        <h4>👥 推荐关注</h4>
+        <div class="recommend-list">
+          <div v-for="user in recommendUsers" :key="user.id" class="recommend-item">
+            <img :src="user.avatar || defaultAvatar" alt="avatar" class="recommend-avatar" />
+            <div class="recommend-info">
+              <span class="recommend-name">{{ user.nickname }}</span>
+              <span class="recommend-bio">{{ user.college }}</span>
+            </div>
+            <button class="follow-btn" @click="followUser(user)">+ 关注</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '@/stores/user'
+import { usePostStore } from '@/stores/post'
+import { ElMessage } from 'element-plus'
 import PostCreator from '@/components/post/PostCreator.vue'
 import PostList from '@/components/post/PostList.vue'
 import HotSearch from '@/components/sidebar/HotSearch.vue'
 import TopicTags from '@/components/sidebar/TopicTags.vue'
 
-// 数据状态
-const postList = ref([])
+const router = useRouter()
+const userStore = useUserStore()
+const postStore = usePostStore()
+
+// 默认头像
+const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
+
+// 当前筛选状态
+const currentTab = ref('latest')
+const currentCategory = ref('all')
+
+// 当前显示的帖子
+const currentPosts = computed(() => {
+  let posts = [...postStore.posts]
+  
+  // 按分类筛选
+  if (currentCategory.value !== 'all') {
+    posts = posts.filter(p => p.category === currentCategory.value)
+  }
+  
+  // 排序
+  switch (currentTab.value) {
+    case 'hot':
+      posts.sort((a, b) => (b.likes + b.comments) - (a.likes + a.comments))
+      break
+    case 'latest':
+    default:
+      posts.sort((a, b) => new Date(b.createTime) - new Date(a.createTime))
+      break
+  }
+  
+  return posts
+})
+
+// 热搜数据
+
+// 改为从 API 获取
+import { searchAPI } from '@/api'
+
 const hotSearchList = ref([])
 const hotTopics = ref([])
-const hasMore = ref(true)
 
-// 方法
-const handlePostSubmit = (postData) => {
-  console.log('发布内容:', postData)
-  // 添加到帖子列表
-  postList.value.unshift({
-    id: Date.now(),
-    title: '新发布的帖子',
-    content: postData.content,
-    author: '当前用户',
-    time: '刚刚',
-    likes: 0,
-    comments: 0,
-    tags: postData.category ? [postData.category] : []
+// 获取热门标签
+const fetchHotTags = async () => {
+  try {
+    const response = await searchAPI.getHotTags()
+    hotSearchList.value = response.data || []
+  } catch (error) {
+    console.error('获取热门标签失败:', error)
+  }
+}
+
+onMounted(() => {
+  postStore.fetchPosts({ page: 1 })
+  fetchHotTags()
+})
+
+// 发布帖子
+const handlePostSubmit = async (postData) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  
+  const result = await postStore.createPost(postData)
+  if (result.success) {
+    ElMessage.success('发布成功')
+    // 刷新帖子列表
+    await postStore.fetchPosts({ page: 1, tab: currentTab.value, category: currentCategory.value })
+  } else {
+    ElMessage.error(result.error || '发布失败')
+  }
+}
+
+// 加载更多
+const handleLoadMore = () => {
+  postStore.fetchPosts({
+    page: postStore.currentPage + 1,
+    tab: currentTab.value,
+    category: currentCategory.value
   })
 }
 
-const handleLoadMore = () => {
-  console.log('加载更多帖子')
-  // 模拟加载更多
-  setTimeout(() => {
-    const newPosts = [
-      {
-        id: Date.now() + 1,
-        title: '加载的帖子 1',
-        content: '这是新加载的帖子内容...',
-        author: '用户A',
-        time: '3小时前',
-        likes: 15,
-        comments: 3,
-        tags: ['经验分享']
-      },
-      {
-        id: Date.now() + 2,
-        title: '加载的帖子 2',
-        content: '这是另一个新加载的帖子...',
-        author: '用户B',
-        time: '5小时前',
-        likes: 8,
-        comments: 1,
-        tags: ['求助']
-      }
-    ]
-    postList.value.push(...newPosts)
-    
-    // 模拟没有更多数据
-    if (postList.value.length > 10) {
-      hasMore.value = false
-    }
-  }, 1000)
+// 标签切换
+const handleTabChange = (tab) => {
+  const tabMap = {
+    '最新': 'latest',
+    '热门': 'hot',
+    '关注': 'following',
+    '推荐': 'recommend'
+  }
+  currentTab.value = tabMap[tab] || 'latest'
+  postStore.fetchPosts({ page: 1, tab: currentTab.value, category: currentCategory.value })
 }
 
-const handlePostClick = (post) => {
-  console.log('点击帖子:', post)
+// 筛选变化
+const handleFilterChange = (filter) => {
+  const filterMap = {
+    'all': 'all',
+    'competition': 'competition',
+    'research': 'research',
+    'team': 'team',
+    'question': 'question'
+  }
+  currentCategory.value = filterMap[filter] || 'all'
+  postStore.fetchPosts({ page: 1, tab: currentTab.value, category: currentCategory.value })
 }
 
-const handleLike = (post) => {
-  post.likes++
-  console.log('点赞帖子:', post)
+// 点赞
+const handleLike = async (post) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  
+  const result = await postStore.likePost(post.id)
+  if (result.success) {
+    ElMessage.success(result.isLiked ? '点赞成功' : '取消点赞')
+  }
 }
 
+// 评论
 const handleComment = (post) => {
-  console.log('评论帖子:', post)
+  router.push(`/post/${post.id}#comments`)
 }
 
+// 分享
+const handleShare = (post) => {
+  const url = `${window.location.origin}/post/${post.id}`
+  navigator.clipboard?.writeText(url).then(() => {
+    ElMessage.success('链接已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.info(`分享链接: ${url}`)
+  })
+}
+
+// 收藏
+const handleCollect = async (post) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  
+  const result = await postStore.collectPost(post.id)
+  if (result.success) {
+    ElMessage.success(result.isCollected ? '收藏成功' : '取消收藏')
+  }
+}
+
+// 热搜点击
 const handleHotSearchClick = (item) => {
-  console.log('点击热搜:', item)
+  router.push({ path: '/search', query: { q: item.title } })
 }
 
-const handleViewMoreHotSearch = () => {
-  console.log('查看更多热搜')
-}
-
+// 话题点击
 const handleTopicClick = (tag) => {
-  console.log('点击话题:', tag)
+  router.push({ path: '/search', query: { tag } })
 }
 
-// 初始化数据
+// 关注用户
+const followUser = (user) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  ElMessage.success(`已关注 ${user.nickname}`)
+}
+
+// 初始化
 onMounted(() => {
-  // 模拟热搜数据
-  hotSearchList.value = [
-    { id: 1, title: '全国大学生数学建模竞赛', heat: '125.6w', tag: '热' },
-    { id: 2, title: '挑战杯创业计划大赛', heat: '98.3w', tag: '新' },
-    { id: 3, title: '研究生科研立项申报', heat: '76.2w', tag: '热' },
-    { id: 4, title: '互联网+创新创业大赛', heat: '68.9w', tag: '' },
-    { id: 5, title: '全国地质技能竞赛', heat: '54.1w', tag: '荐' },
-    { id: 6, title: '英语四六级备考', heat: '42.7w', tag: '' },
-    { id: 7, title: '实验室纳新招募', heat: '38.5w', tag: '新' },
-    { id: 8, title: 'ACM程序设计竞赛', heat: '31.2w', tag: '' },
-    { id: 9, title: '论文写作技巧', heat: '28.6w', tag: '' },
-    { id: 10, title: '考研复试经验', heat: '24.3w', tag: '热' }
-  ]
-  
-  // 热门话题
-  hotTopics.value = [
-    '数学建模竞赛',
-    '大创项目申报',
-    '挑战杯经验',
-    '实验室招募',
-    '论文写作技巧',
-    '四六级备考',
-    '考研交流',
-    '实习内推'
-  ]
-  
-  // 模拟帖子数据
-  postList.value = [
-    {
-      id: 1,
-      title: '寻找数学建模队友',
-      content: '大二学生，有一定编程基础，寻找两名队友参加全国大学生数学建模竞赛，希望有建模经验或编程能力强的同学加入！',
-      author: '张三',
-      avatar: '',
-      time: '2小时前',
-      likes: 24,
-      comments: 8,
-      tags: ['数学建模', '组队']
-    },
-    {
-      id: 2,
-      title: '大创项目经验分享',
-      content: '刚完成国家级大创项目结题，分享一些申请和执行的注意事项：1. 选题要结合热点 2. 团队分工明确 3. 定期与导师沟通...',
-      author: '李四',
-      avatar: '',
-      time: '昨天',
-      likes: 56,
-      comments: 12,
-      tags: ['大创', '经验分享']
-    },
-    {
-      id: 3,
-      title: '地质技能大赛求指导',
-      content: '下个月参加全国地质技能大赛，有没有参加过的大佬可以分享一下经验和注意事项？特别是野外实践部分。',
-      author: '王五',
-      avatar: '',
-      time: '3天前',
-      likes: 18,
-      comments: 15,
-      tags: ['地质技能', '求助']
-    }
-  ]
+  postStore.fetchPosts({ page: 1, tab: 'latest', category: 'all' })
 })
 </script>
 
@@ -210,7 +262,72 @@ onMounted(() => {
   gap: 20px;
 }
 
-/* 响应式设计 */
+.recommend-card {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  border: 1px solid #edf1f7;
+}
+
+.recommend-card h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 16px;
+}
+
+.recommend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recommend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.recommend-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.recommend-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.recommend-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.recommend-bio {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.follow-btn {
+  padding: 4px 12px;
+  background: transparent;
+  border: 1px solid #004e9e;
+  border-radius: 16px;
+  color: #004e9e;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.follow-btn:hover {
+  background: #004e9e;
+  color: white;
+}
+
 @media (max-width: 1024px) {
   .main-layout {
     flex-direction: column;
