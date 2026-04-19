@@ -16,6 +16,8 @@ export const usePostStore = defineStore('post', () => {
   const fetchPosts = async (params = {}) => {
     const { page = 1, pageSize = 10, category = 'all', tab = 'latest' } = params
     
+    console.log('fetchPosts 调用:', { page, category, tab })
+    
     if (page === 1) {
       loading.value = true
     } else {
@@ -25,20 +27,37 @@ export const usePostStore = defineStore('post', () => {
     try {
       const response = await postAPI.getPosts({ page, pageSize, category, tab })
       
+      console.log('获取帖子响应:', response.data)
+      
+      // 处理后端返回的数据
+      const responsePosts = response.data.posts || []
+      
+      // 确保每个帖子都有正确的字段
+      const processedPosts = responsePosts.map(post => ({
+        ...post,
+        id: post._id || post.id,  // 统一使用 id
+        isLiked: post.isLiked || false,
+        isCollected: post.isCollected || false,
+        likes: post.likes || [],
+        comments: post.comments || []
+      }))
+      
       if (page === 1) {
-        posts.value = response.data.posts || []
+        posts.value = processedPosts
       } else {
-        posts.value.push(...(response.data.posts || []))
+        posts.value.push(...processedPosts)
       }
       
       hasMore.value = response.data.hasMore || false
       total.value = response.data.total || 0
       currentPage.value = page
       
-      return { success: true, data: response.data.posts }
+      console.log('当前帖子数量:', posts.value.length)
+      
+      return { success: true, data: processedPosts }
     } catch (error) {
       console.error('获取帖子失败:', error)
-      return { success: false, error: error.message }
+      return { success: false, error: error.message, data: [] }
     } finally {
       loading.value = false
       loadingMore.value = false
@@ -48,16 +67,30 @@ export const usePostStore = defineStore('post', () => {
   // 创建帖子
   const createPost = async (postData) => {
     try {
+      console.log('创建帖子数据:', postData)
+      
       const response = await postAPI.createPost(postData)
       
-      if (response.data) {
-        posts.value.unshift(response.data)
+      console.log('创建帖子响应:', response.data)
+      
+      // 处理返回的帖子数据
+      const newPost = {
+        ...response.data,
+        id: response.data._id || response.data.id,
+        isLiked: false,
+        isCollected: false
       }
       
-      return { success: true, data: response.data }
+      // 添加到列表最前面
+      posts.value.unshift(newPost)
+      
+      return { success: true, data: newPost }
     } catch (error) {
       console.error('创建帖子失败:', error)
-      return { success: false, error: error.response?.data?.message || error.message }
+      return { 
+        success: false, 
+        error: error.response?.data?.message || error.message 
+      }
     }
   }
   
@@ -65,8 +98,16 @@ export const usePostStore = defineStore('post', () => {
   const fetchPostById = async (id) => {
     try {
       const response = await postAPI.getPost(id)
-      currentPost.value = response.data
-      return { success: true, data: response.data }
+      
+      const post = {
+        ...response.data,
+        id: response.data._id || response.data.id,
+        isLiked: false,
+        isCollected: false
+      }
+      
+      currentPost.value = post
+      return { success: true, data: post }
     } catch (error) {
       console.error('获取帖子详情失败:', error)
       return { success: false, error: error.message }
@@ -79,10 +120,12 @@ export const usePostStore = defineStore('post', () => {
       const response = await postAPI.likePost(postId)
       
       // 更新本地状态
-      const post = posts.value.find(p => p.id === postId || p._id === postId)
+      const post = posts.value.find(p => (p.id || p._id) === postId)
       if (post) {
         post.isLiked = response.data.isLiked
-        post.likes = response.data.likes
+        post.likes = Array.isArray(response.data.likes) 
+          ? response.data.likes 
+          : { length: response.data.likes }
       }
       
       if (currentPost.value && (currentPost.value.id === postId || currentPost.value._id === postId)) {
@@ -102,7 +145,6 @@ export const usePostStore = defineStore('post', () => {
     try {
       await postAPI.deletePost(postId)
       
-      // 从列表中移除
       posts.value = posts.value.filter(p => {
         const id = p.id || p._id
         return id !== postId
@@ -122,9 +164,17 @@ export const usePostStore = defineStore('post', () => {
     try {
       const response = await searchAPI.search(params)
       
+      const responsePosts = response.data.posts || []
+      const processedPosts = responsePosts.map(post => ({
+        ...post,
+        id: post._id || post.id,
+        isLiked: false,
+        isCollected: false
+      }))
+      
       return {
         success: true,
-        data: response.data.posts || [],
+        data: processedPosts,
         hasMore: response.data.hasMore || false,
         total: response.data.total || 0,
         relatedTags: response.data.relatedTags || []

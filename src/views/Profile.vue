@@ -1,6 +1,5 @@
 <template>
   <div class="profile-container">
-    <!-- 个人信息卡片 -->
     <div class="profile-header">
       <div class="profile-cover">
         <CoverUpload 
@@ -78,7 +77,7 @@
               <span class="stat-label">粉丝</span>
             </div>
             <div class="stat-item">
-              <span class="stat-value">{{ userInfo.posts || 0 }}</span>
+              <span class="stat-value">{{ userInfo.posts || userPosts.length }}</span>
               <span class="stat-label">帖子</span>
             </div>
             <div class="stat-item">
@@ -90,7 +89,6 @@
       </div>
     </div>
     
-    <!-- 内容标签页 -->
     <div class="profile-content">
       <div class="content-tabs">
         <span 
@@ -109,7 +107,6 @@
       </div>
       
       <div class="content-panel">
-        <!-- 我的帖子 -->
         <div v-if="activeTab === 'posts'" class="posts-panel">
           <div class="panel-header">
             <h3>我的帖子</h3>
@@ -153,10 +150,10 @@
                 </div>
                 <p class="post-preview">{{ post.content }}</p>
                 <div class="post-meta">
-                  <span>{{ post.createTime }}</span>
+                  <span>{{ new Date(post.createTime).toLocaleDateString() }}</span>
                   <span>❤️ {{ post.likes }}</span>
                   <span>💬 {{ post.comments }}</span>
-                  <span>👁️ {{ post.views }}</span>
+                  <span>👁️ {{ post.views || 0 }}</span>
                   <span class="post-status" :class="post.status">
                     {{ getStatusText(post.status) }}
                   </span>
@@ -166,7 +163,6 @@
           </div>
         </div>
         
-        <!-- 收藏 -->
         <div v-if="activeTab === 'collections'" class="collections-panel">
           <div class="panel-header">
             <h3>我的收藏</h3>
@@ -209,7 +205,6 @@
           </div>
         </div>
         
-        <!-- 关注/粉丝 -->
         <div v-if="activeTab === 'following' || activeTab === 'followers'" class="follow-panel">
           <div class="panel-header">
             <h3>{{ activeTab === 'following' ? '我的关注' : '我的粉丝' }}</h3>
@@ -239,7 +234,6 @@
           </div>
         </div>
         
-        <!-- 设置 -->
         <div v-if="activeTab === 'settings' && isOwnProfile" class="settings-panel">
           <div class="settings-section">
             <h4>账号设置</h4>
@@ -301,7 +295,6 @@
       </div>
     </div>
     
-    <!-- 编辑资料弹窗 -->
     <div class="modal-overlay" v-if="showEditModal" @click="closeEditModal">
       <div class="edit-modal" @click.stop>
         <div class="modal-header">
@@ -385,7 +378,9 @@ import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AvatarUpload from '@/components/profile/AvatarUpload.vue'
 import CoverUpload from '@/components/profile/CoverUpload.vue'
+import axios from 'axios'
 
+const API_BASE = 'http://localhost:3000/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -393,36 +388,42 @@ const userStore = useUserStore()
 
 // 默认图片
 const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
-const defaultCover = 'https://images.unsplash.com/photo-1499336315816-097655dcfbda?w=1200&h=300&fit=crop'
 
-// 当前查看的用户ID（从路由获取）
-const userId = computed(() => route.params.id || userStore.userInfo?.id)
+// 当前查看的用户ID
+const userId = computed(() => {
+  const routeId = route.params.id
+  if (routeId) return routeId
+  const storeUser = userStore.userInfo
+  return storeUser?.id || storeUser?._id
+})
 
 // 是否是自己的主页
 const isOwnProfile = computed(() => {
-  return userStore.isLoggedIn && userStore.userInfo?.id === userId.value
+  if (!userStore.isLoggedIn) return false
+  const currentId = userStore.userInfo?.id || userStore.userInfo?._id
+  return currentId === userId.value
 })
 
 // 用户信息
 const userInfo = ref({
-  id: 1,
-  username: 'zhangsan',
-  nickname: '张三',
+  id: '',
+  username: '',
+  nickname: '',
   avatar: '',
   cover: '',
-  bio: '热爱编程，喜欢分享技术经验',
-  college: '计算机学院',
-  major: '软件工程',
-  grade: '大三',
-  email: 'zhangsan@cug.edu.cn',
+  bio: '',
+  college: '',
+  major: '',
+  grade: '',
+  email: '',
   phone: '',
-  location: '武汉',
-  verified: true,
-  level: 5,
-  following: 128,
-  followers: 256,
-  posts: 45,
-  likes: 1234
+  location: '',
+  verified: false,
+  level: 1,
+  following: 0,
+  followers: 0,
+  posts: 0,
+  likes: 0
 })
 
 // 当前活跃标签页
@@ -434,56 +435,30 @@ const tabs = ref([
   { key: 'followers', label: '粉丝', icon: '👥' }
 ])
 
-// 如果是自己的主页，添加设置标签
-if (isOwnProfile.value) {
-  tabs.value.push({ key: 'settings', label: '设置', icon: '⚙️' })
-}
+// 关注状态
+const isFollowing = ref(false)
+
+// 帖子数据
+const userPosts = ref([])
+const loadingPosts = ref(false)
+
+// 收藏数据
+const collections = ref([])
+
+// 关注/粉丝列表
+const followList = ref([])
+const followSearch = ref('')
+const loadingFollow = ref(false)
 
 // 标签计数
 const tabCounts = computed(() => ({
   posts: userPosts.value.length,
   collections: collections.value.length,
-  following: userInfo.value.following,
-  followers: userInfo.value.followers
+  following: userInfo.value.following || 0,
+  followers: userInfo.value.followers || 0
 }))
 
-// 关注状态
-const isFollowing = ref(false)
-
-// 帖子数据
-const userPosts = ref([
-  {
-    id: 1,
-    title: '寻找数学建模队友',
-    content: '大二学生，有一定编程基础，寻找两名队友参加全国大学生数学建模竞赛...',
-    createTime: '2024-01-15',
-    likes: 24,
-    comments: 8,
-    views: 156,
-    status: 'published'
-  },
-  {
-    id: 2,
-    title: '大创项目经验分享',
-    content: '刚完成国家级大创项目结题，分享一些申请和执行的注意事项...',
-    createTime: '2024-01-10',
-    likes: 56,
-    comments: 12,
-    views: 234,
-    status: 'published'
-  },
-  {
-    id: 3,
-    title: '',
-    content: '这是一个草稿...',
-    createTime: '2024-01-08',
-    likes: 0,
-    comments: 0,
-    views: 0,
-    status: 'draft'
-  }
-])
-
+// 帖子筛选
 const postFilter = ref('all')
 const showPostFilter = ref(false)
 
@@ -493,36 +468,11 @@ const filteredPosts = computed(() => {
 })
 
 const getStatusText = (status) => {
-  const statusMap = {
-    published: '已发布',
-    draft: '草稿',
-    archived: '已归档'
-  }
+  const statusMap = { published: '已发布', draft: '草稿', archived: '已归档' }
   return statusMap[status] || status
 }
 
-// 收藏数据
-const collections = ref([
-  {
-    id: 1,
-    type: 'post',
-    typeText: '帖子',
-    title: 'Vue3 组合式 API 最佳实践',
-    description: '详细介绍 Vue3 组合式 API 的使用方法...',
-    author: '李四',
-    collectTime: '2024-01-12'
-  },
-  {
-    id: 2,
-    type: 'competition',
-    typeText: '竞赛',
-    title: '全国大学生数学建模竞赛',
-    description: '教育部主办的全国性学科竞赛...',
-    author: '官方',
-    collectTime: '2024-01-05'
-  }
-])
-
+// 收藏筛选
 const collectionFilter = ref('全部')
 const collectionTags = ref(['全部', '帖子', '竞赛', '项目', '问答'])
 const showCollectionFilter = ref(false)
@@ -533,18 +483,11 @@ const filteredCollections = computed(() => {
   return collections.value.filter(c => c.type === typeMap[collectionFilter.value])
 })
 
-// 关注/粉丝数据
-const followSearch = ref('')
-const followList = ref([
-  { id: 1, nickname: '李四', avatar: '', bio: '热爱前端开发', isFollowing: true },
-  { id: 2, nickname: '王五', avatar: '', bio: '后端工程师', isFollowing: false },
-  { id: 3, nickname: '赵六', avatar: '', bio: '全栈开发者', isFollowing: true }
-])
-
+// 关注/粉丝筛选
 const filteredFollows = computed(() => {
   if (!followSearch.value) return followList.value
   return followList.value.filter(u => 
-    u.nickname.includes(followSearch.value) || 
+    u.nickname?.includes(followSearch.value) || 
     u.bio?.includes(followSearch.value)
   )
 })
@@ -567,35 +510,155 @@ const editForm = ref({
   location: ''
 })
 
-// 方法
+// ==========================================
+// 加载用户信息
+// ==========================================
 const loadUserInfo = async () => {
-  // 模拟加载用户信息
-  if (!isOwnProfile.value) {
-    // 加载其他用户信息
+  if (!userId.value) return
+  
+  try {
+    const token = localStorage.getItem('token')
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    
+    const res = await axios.get(`${API_BASE}/users/${userId.value}`, { headers })
+    
     userInfo.value = {
       ...userInfo.value,
-      id: userId.value,
-      nickname: '其他用户',
-      bio: '这是一个其他用户的个人主页'
+      ...res.data,
+      id: res.data.id || res.data._id
     }
-  } else {
-    // 使用当前登录用户信息
-    userInfo.value = { ...userInfo.value, ...userStore.userInfo }
+  } catch (error) {
+    console.error('加载用户信息失败:', error)
+    // 如果是自己的主页，使用 store 中的数据
+    if (isOwnProfile.value && userStore.userInfo) {
+      userInfo.value = {
+        ...userInfo.value,
+        ...userStore.userInfo,
+        id: userStore.userInfo.id || userStore.userInfo._id
+      }
+    }
   }
 }
 
-const toggleFollow = () => {
+// ==========================================
+// 加载用户帖子
+// ==========================================
+const loadUserPosts = async () => {
+  if (!userId.value) return
+  
+  loadingPosts.value = true
+  try {
+    const res = await axios.get(`${API_BASE}/posts/user/${userId.value}`)
+    userPosts.value = res.data.posts || res.data || []
+  } catch (error) {
+    console.error('获取帖子列表失败:', error)
+    userPosts.value = []
+  } finally {
+    loadingPosts.value = false
+  }
+}
+
+// ==========================================
+// 加载关注列表
+// ==========================================
+const loadFollowing = async () => {
+  if (!userId.value) return
+  
+  loadingFollow.value = true
+  try {
+    const res = await axios.get(`${API_BASE}/users/${userId.value}/following`)
+    followList.value = res.data || []
+  } catch (error) {
+    console.error('获取关注列表失败:', error)
+    followList.value = []
+  } finally {
+    loadingFollow.value = false
+  }
+}
+
+// ==========================================
+// 加载粉丝列表
+// ==========================================
+const loadFollowers = async () => {
+  if (!userId.value) return
+  
+  loadingFollow.value = true
+  try {
+    const token = localStorage.getItem('token')
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    const res = await axios.get(`${API_BASE}/users/${userId.value}/followers`, { headers })
+    followList.value = res.data || []
+  } catch (error) {
+    console.error('获取粉丝列表失败:', error)
+    followList.value = []
+  } finally {
+    loadingFollow.value = false
+  }
+}
+
+// ==========================================
+// 关注/取消关注
+// ==========================================
+const toggleFollow = async () => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
     router.push('/login')
     return
   }
   
-  isFollowing.value = !isFollowing.value
-  userInfo.value.followers += isFollowing.value ? 1 : -1
-  ElMessage.success(isFollowing.value ? '关注成功' : '已取消关注')
+  try {
+    const token = localStorage.getItem('token')
+    const res = await axios.post(
+      `${API_BASE}/users/${userId.value}/follow`, 
+      {}, 
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    
+    isFollowing.value = res.data.isFollowing
+    userInfo.value.followers = res.data.followersCount
+    
+    ElMessage.success(isFollowing.value ? '关注成功' : '已取消关注')
+  } catch (error) {
+    console.error('关注操作失败:', error)
+    ElMessage.error(error.response?.data?.message || '操作失败')
+  }
 }
 
+// ==========================================
+// 关注/取消关注列表中的用户
+// ==========================================
+const toggleFollowUser = async (user) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  
+  try {
+    const token = localStorage.getItem('token')
+    const res = await axios.post(
+      `${API_BASE}/users/${user.id}/follow`, 
+      {}, 
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    
+    user.isFollowing = res.data.isFollowing
+    
+    if (activeTab.value === 'following') {
+      loadFollowing()
+    } else if (activeTab.value === 'followers') {
+      loadFollowers()
+    }
+    
+    ElMessage.success(user.isFollowing ? '关注成功' : '已取消关注')
+  } catch (error) {
+    ElMessage.error('操作失败')
+  }
+}
+
+// ==========================================
+// 发送私信
+// ==========================================
 const sendMessage = () => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
@@ -605,24 +668,31 @@ const sendMessage = () => {
   router.push(`/messages?user=${userId.value}`)
 }
 
+// ==========================================
 // 处理封面更新
+// ==========================================
 const handleCoverUpdate = (url) => {
   userInfo.value.cover = url
   if (isOwnProfile.value) {
-    userStore.setUserInfo(userInfo.value)
+    userStore.updateUserInfo({ cover: url })
   }
   ElMessage.success('封面已更新')
 }
 
+// ==========================================
 // 处理头像更新
+// ==========================================
 const handleAvatarUpdate = (url) => {
   userInfo.value.avatar = url
   if (isOwnProfile.value) {
-    userStore.setUserInfo(userInfo.value)
+    userStore.updateUserInfo({ avatar: url })
   }
   ElMessage.success('头像已更新')
 }
 
+// ==========================================
+// 分享个人主页
+// ==========================================
 const shareProfile = () => {
   const url = window.location.href
   navigator.clipboard?.writeText(url).then(() => {
@@ -632,57 +702,105 @@ const shareProfile = () => {
   })
 }
 
+// ==========================================
+// 打开编辑资料弹窗
+// ==========================================
 const openEditModal = () => {
   editForm.value = {
     avatar: userInfo.value.avatar,
-    nickname: userInfo.value.nickname,
-    bio: userInfo.value.bio,
-    college: userInfo.value.college,
-    major: userInfo.value.major,
-    grade: userInfo.value.grade,
-    location: userInfo.value.location
+    nickname: userInfo.value.nickname || '',
+    bio: userInfo.value.bio || '',
+    college: userInfo.value.college || '',
+    major: userInfo.value.major || '',
+    grade: userInfo.value.grade || '',
+    location: userInfo.value.location || ''
   }
   showEditModal.value = true
 }
 
+// ==========================================
+// 关闭编辑资料弹窗
+// ==========================================
 const closeEditModal = () => {
   showEditModal.value = false
 }
 
+// ==========================================
+// 上传头像（占位）
+// ==========================================
 const uploadAvatar = () => {
   ElMessage.info('上传头像功能开发中...')
 }
 
-const saveProfile = () => {
-  userInfo.value = { ...userInfo.value, ...editForm.value }
-  userStore.setUserInfo(userInfo.value)
-  ElMessage.success('保存成功')
-  closeEditModal()
+// ==========================================
+// 保存个人资料
+// ==========================================
+const saveProfile = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    await axios.put(
+      `${API_BASE}/users/profile`, 
+      editForm.value,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    
+    userInfo.value = { ...userInfo.value, ...editForm.value }
+    userStore.updateUserInfo(editForm.value)
+    ElMessage.success('保存成功')
+    closeEditModal()
+  } catch (error) {
+    console.error('保存失败:', error)
+    ElMessage.error('保存失败')
+  }
 }
 
+// ==========================================
+// 创建新帖子
+// ==========================================
 const createNewPost = () => {
   router.push('/')
 }
 
+// ==========================================
+// 查看帖子
+// ==========================================
 const viewPost = (postId) => {
   router.push(`/post/${postId}`)
 }
 
-const editPost = (post) => {
+// ==========================================
+// 编辑帖子
+// ==========================================
+const editPost = () => {
   ElMessage.info('编辑功能开发中...')
 }
 
+// ==========================================
+// 删除帖子
+// ==========================================
 const deletePost = (post) => {
   ElMessageBox.confirm('确定要删除这篇帖子吗？', '提示', {
     confirmButtonText: '确定',
     cancelButtonText: '取消',
     type: 'warning'
-  }).then(() => {
-    userPosts.value = userPosts.value.filter(p => p.id !== post.id)
-    ElMessage.success('删除成功')
+  }).then(async () => {
+    try {
+      const token = localStorage.getItem('token')
+      await axios.delete(`${API_BASE}/posts/${post.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      userPosts.value = userPosts.value.filter(p => p.id !== post.id)
+      userInfo.value.posts = Math.max(0, (userInfo.value.posts || 1) - 1)
+      ElMessage.success('删除成功')
+    } catch (error) {
+      ElMessage.error('删除失败')
+    }
   }).catch(() => {})
 }
 
+// ==========================================
+// 查看收藏
+// ==========================================
 const viewCollection = (item) => {
   if (item.type === 'post') {
     router.push(`/post/${item.id}`)
@@ -691,28 +809,38 @@ const viewCollection = (item) => {
   }
 }
 
+// ==========================================
+// 取消收藏
+// ==========================================
 const removeCollection = (item) => {
   collections.value = collections.value.filter(c => c.id !== item.id)
   ElMessage.success('已取消收藏')
 }
 
-const toggleFollowUser = (user) => {
-  user.isFollowing = !user.isFollowing
-  ElMessage.success(user.isFollowing ? '关注成功' : '已取消关注')
-}
-
+// ==========================================
+// 修改邮箱
+// ==========================================
 const changeEmail = () => {
   ElMessage.info('修改邮箱功能开发中...')
 }
 
+// ==========================================
+// 绑定手机
+// ==========================================
 const bindPhone = () => {
   ElMessage.info('绑定手机功能开发中...')
 }
 
+// ==========================================
+// 修改密码
+// ==========================================
 const changePassword = () => {
   ElMessage.info('修改密码功能开发中...')
 }
 
+// ==========================================
+// 退出登录
+// ==========================================
 const logout = () => {
   ElMessageBox.confirm('确定要退出登录吗？', '提示', {
     confirmButtonText: '确定',
@@ -725,6 +853,9 @@ const logout = () => {
   }).catch(() => {})
 }
 
+// ==========================================
+// 注销账号
+// ==========================================
 const deleteAccount = () => {
   ElMessageBox.confirm('注销账号后所有数据将被永久删除，确定要继续吗？', '危险操作', {
     confirmButtonText: '确定注销',
@@ -737,15 +868,35 @@ const deleteAccount = () => {
   }).catch(() => {})
 }
 
-// 监听路由变化
-watch(() => route.params.id, () => {
-  loadUserInfo()
+// ==========================================
+// 监听标签页切换
+// ==========================================
+watch(activeTab, (newTab) => {
+  if (newTab === 'following') {
+    loadFollowing()
+  } else if (newTab === 'followers') {
+    loadFollowers()
+  }
 })
 
-onMounted(() => {
+// ==========================================
+// 监听路由变化
+// ==========================================
+watch(() => route.params.id, () => {
   loadUserInfo()
+  loadUserPosts()
+  isFollowing.value = false
+  activeTab.value = 'posts'
+})
+
+// ==========================================
+// 初始化
+// ==========================================
+onMounted(async () => {
+  await loadUserInfo()
+  await loadUserPosts()
   
-  // 如果查看的是自己的主页，添加设置标签
+  // 如果是自己的主页，添加设置标签
   if (isOwnProfile.value) {
     const hasSettings = tabs.value.find(t => t.key === 'settings')
     if (!hasSettings) {

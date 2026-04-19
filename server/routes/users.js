@@ -137,4 +137,75 @@ router.get('/:id/collections', auth, async (req, res) => {
   }
 })
 
+// ==========================================
+// 获取用户的关注列表
+// ==========================================
+router.get('/:id/following', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .populate('following', 'nickname avatar bio college')
+      .lean()
+    
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' })
+    }
+    
+    const following = (user.following || []).map(u => ({
+      ...u,
+      id: u._id,
+      isFollowing: true
+    }))
+    
+    res.json(following)
+  } catch (error) {
+    console.error('获取关注列表失败:', error)
+    res.status(500).json({ message: '获取失败' })
+  }
+})
+
+// ==========================================
+// 获取用户的粉丝列表
+// ==========================================
+router.get('/:id/followers', async (req, res) => {
+  try {
+    // 获取当前登录用户ID
+    let currentUserId = null
+    const authHeader = req.headers.authorization
+    if (authHeader) {
+      try {
+        const token = authHeader.replace('Bearer ', '')
+        const jwt = require('jsonwebtoken')
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key')
+        currentUserId = decoded.userId
+      } catch (e) {}
+    }
+    
+    const user = await User.findById(req.params.id)
+      .populate('followers', 'nickname avatar bio college')
+      .lean()
+    
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' })
+    }
+    
+    // 获取当前用户的关注列表
+    let currentUserFollowing = []
+    if (currentUserId) {
+      const currentUser = await User.findById(currentUserId)
+      currentUserFollowing = currentUser?.following.map(id => id.toString()) || []
+    }
+    
+    const followers = (user.followers || []).map(u => ({
+      ...u,
+      id: u._id,
+      isFollowing: currentUserFollowing.includes(u._id.toString())
+    }))
+    
+    res.json(followers)
+  } catch (error) {
+    console.error('获取粉丝列表失败:', error)
+    res.status(500).json({ message: '获取失败' })
+  }
+})
+
 module.exports = router

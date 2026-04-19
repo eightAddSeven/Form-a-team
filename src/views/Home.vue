@@ -7,7 +7,7 @@
       
       <!-- 帖子列表 -->
       <PostList 
-        :posts="currentPosts"
+        :posts="postStore.posts"
         :loading="postStore.loading"
         :loading-more="postStore.loadingMore"
         :has-more="postStore.hasMore"
@@ -54,10 +54,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { usePostStore } from '@/stores/post'
+import { searchAPI } from '@/api'
 import { ElMessage } from 'element-plus'
 import PostCreator from '@/components/post/PostCreator.vue'
 import PostList from '@/components/post/PostList.vue'
@@ -75,36 +76,16 @@ const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/
 const currentTab = ref('latest')
 const currentCategory = ref('all')
 
-// 当前显示的帖子
-const currentPosts = computed(() => {
-  let posts = [...postStore.posts]
-  
-  // 按分类筛选
-  if (currentCategory.value !== 'all') {
-    posts = posts.filter(p => p.category === currentCategory.value)
-  }
-  
-  // 排序
-  switch (currentTab.value) {
-    case 'hot':
-      posts.sort((a, b) => (b.likes + b.comments) - (a.likes + a.comments))
-      break
-    case 'latest':
-    default:
-      posts.sort((a, b) => new Date(b.createTime) - new Date(a.createTime))
-      break
-  }
-  
-  return posts
-})
-
 // 热搜数据
-
-// 改为从 API 获取
-import { searchAPI } from '@/api'
-
 const hotSearchList = ref([])
 const hotTopics = ref([])
+
+// 推荐用户（暂时用模拟数据）
+const recommendUsers = ref([
+  { id: 1, nickname: '张三', college: '计算机学院', avatar: '' },
+  { id: 2, nickname: '李四', college: '经济管理学院', avatar: '' },
+  { id: 3, nickname: '王五', college: '地球科学学院', avatar: '' }
+])
 
 // 获取热门标签
 const fetchHotTags = async () => {
@@ -113,13 +94,14 @@ const fetchHotTags = async () => {
     hotSearchList.value = response.data || []
   } catch (error) {
     console.error('获取热门标签失败:', error)
+    // 设置默认数据
+    hotSearchList.value = [
+      { name: '数学建模', displayName: '数学建模', heat: '100' },
+      { name: 'ACM', displayName: 'ACM程序设计', heat: '80' },
+      { name: '挑战杯', displayName: '挑战杯', heat: '60' }
+    ]
   }
 }
-
-onMounted(() => {
-  postStore.fetchPosts({ page: 1 })
-  fetchHotTags()
-})
 
 // 发布帖子
 const handlePostSubmit = async (postData) => {
@@ -129,11 +111,14 @@ const handlePostSubmit = async (postData) => {
     return
   }
   
+  console.log('发布帖子数据:', postData)
+  
   const result = await postStore.createPost(postData)
   if (result.success) {
     ElMessage.success('发布成功')
-    // 刷新帖子列表
+    // 重新获取第一页帖子
     await postStore.fetchPosts({ page: 1, tab: currentTab.value, category: currentCategory.value })
+    console.log('帖子列表已刷新，当前数量:', postStore.posts.length)
   } else {
     ElMessage.error(result.error || '发布失败')
   }
@@ -181,7 +166,8 @@ const handleLike = async (post) => {
     return
   }
   
-  const result = await postStore.likePost(post.id)
+  const postId = post.id || post._id
+  const result = await postStore.likePost(postId)
   if (result.success) {
     ElMessage.success(result.isLiked ? '点赞成功' : '取消点赞')
   }
@@ -189,12 +175,14 @@ const handleLike = async (post) => {
 
 // 评论
 const handleComment = (post) => {
-  router.push(`/post/${post.id}#comments`)
+  const postId = post.id || post._id
+  router.push(`/post/${postId}#comments`)
 }
 
 // 分享
 const handleShare = (post) => {
-  const url = `${window.location.origin}/post/${post.id}`
+  const postId = post.id || post._id
+  const url = `${window.location.origin}/post/${postId}`
   navigator.clipboard?.writeText(url).then(() => {
     ElMessage.success('链接已复制到剪贴板')
   }).catch(() => {
@@ -210,7 +198,8 @@ const handleCollect = async (post) => {
     return
   }
   
-  const result = await postStore.collectPost(post.id)
+  const postId = post.id || post._id
+  const result = await postStore.collectPost(postId)
   if (result.success) {
     ElMessage.success(result.isCollected ? '收藏成功' : '取消收藏')
   }
@@ -218,7 +207,8 @@ const handleCollect = async (post) => {
 
 // 热搜点击
 const handleHotSearchClick = (item) => {
-  router.push({ path: '/search', query: { q: item.title } })
+  const keyword = item.title || item.name || item.displayName
+  router.push({ path: '/search', query: { q: keyword } })
 }
 
 // 话题点击
@@ -236,9 +226,12 @@ const followUser = (user) => {
   ElMessage.success(`已关注 ${user.nickname}`)
 }
 
-// 初始化
-onMounted(() => {
-  postStore.fetchPosts({ page: 1, tab: 'latest', category: 'all' })
+// 初始化 - 只保留一个 onMounted
+onMounted(async () => {
+  console.log('首页初始化，开始加载帖子...')
+  await postStore.fetchPosts({ page: 1, tab: 'latest', category: 'all' })
+  console.log('帖子加载完成，数量:', postStore.posts.length)
+  fetchHotTags()
 })
 </script>
 
