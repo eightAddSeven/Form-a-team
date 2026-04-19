@@ -40,6 +40,7 @@ router.get('/', async (req, res) => {
       createTime: post.createdAt,
       likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
       comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
+      tags: Array.isArray(post.tags) ? post.tags : [],  // ✅ 确保是数组
       isLiked: false,
       isCollected: false
     }))
@@ -77,13 +78,13 @@ router.get('/user/:userId', async (req, res) => {
     
     const total = await Post.countDocuments({ author: req.params.userId, status: 'published' })
     
-    // ✅ 关键修复：将 likes 和 comments 转换为数字
     const responsePosts = posts.map(post => ({
       ...post,
       id: post._id,
       createTime: post.createdAt,
       likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
       comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
+      tags: Array.isArray(post.tags) ? post.tags : [],  // ✅ 确保是数组
       isLiked: false,
       isCollected: false
     }))
@@ -106,6 +107,9 @@ router.post('/', auth, async (req, res) => {
   try {
     const { title, content, category, tags, attachments } = req.body
     
+    console.log('=== 创建帖子请求 ===')
+    console.log('原始 tags:', JSON.stringify(tags))
+    
     if (!content || content.trim() === '') {
       return res.status(400).json({ message: '内容不能为空' })
     }
@@ -115,11 +119,30 @@ router.post('/', auth, async (req, res) => {
       return res.status(404).json({ message: '用户不存在' })
     }
     
+    // ✅ 关键修复：处理 tags，确保存储的是字符串数组
+    let processedTags = []
+    if (Array.isArray(tags)) {
+      processedTags = tags.map(tag => {
+        // 如果是字符串，直接返回
+        if (typeof tag === 'string') {
+          return tag.trim()
+        }
+        // 如果是对象，提取 displayName 或 name
+        if (tag && typeof tag === 'object') {
+          const tagName = tag.displayName || tag.name || ''
+          return tagName.trim()
+        }
+        return ''
+      }).filter(tag => tag !== '') // 过滤空字符串
+    }
+    
+    console.log('处理后的 tags:', processedTags)
+    
     const post = new Post({
       title: title || '',
       content,
       category: category || 'other',
-      tags: tags || [],
+      tags: processedTags,  // ✅ 存储纯字符串数组
       attachments: attachments || [],
       author: req.userId,
       status: 'published',
@@ -128,9 +151,11 @@ router.post('/', auth, async (req, res) => {
     })
     
     await post.save()
+    console.log('帖子保存成功，ID:', post._id, 'tags:', post.tags)
+    
     await post.populate('author', 'nickname avatar college')
     
-    // ✅ 返回数字
+    // 返回时也保持格式一致
     res.status(201).json({
       ...post.toObject(),
       id: post._id,

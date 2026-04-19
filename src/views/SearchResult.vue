@@ -91,21 +91,21 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTagStore } from '@/stores/tagStore'
-import { usePostStore } from '@/stores/post'
+import { postAPI, searchAPI } from '@/api'
 import PostList from '@/components/post/PostList.vue'
+import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 const tagStore = useTagStore()
-const postStore = usePostStore()
 
-// 状态
 const loading = ref(false)
 const posts = ref([])
-const hasMore = ref(true)
+const hasMore = ref(false)
+const total = ref(0)
 const currentPage = ref(1)
 const sortBy = ref('latest')
 const timeRange = ref('all')
@@ -118,7 +118,7 @@ const searchTag = computed(() => route.query.tag || '')
 // 标签信息
 const tagInfo = computed(() => {
   if (!searchTag.value) return null
-  return tagStore.allTags.find(t => t.displayName === searchTag.value)
+  return tagStore.allTags?.find(t => t.displayName === searchTag.value)
 })
 
 // 页面标题
@@ -132,117 +132,96 @@ const pageTitle = computed(() => {
   return '搜索'
 })
 
-// 获取帖子列表
-const fetchPosts = async (isLoadMore = false) => {
-  if (loading.value) return
-  
-  loading.value = true
+// 获取搜索结果
+const fetchSearchResults = async (isLoadMore = false) => {
+  // ✅ 检查是否有搜索条件
+  if (!searchQuery.value && !searchTag.value) {
+    posts.value = []
+    hasMore.value = false
+    total.value = 0
+    return
+  }
   
   if (!isLoadMore) {
+    loading.value = true
     currentPage.value = 1
     posts.value = []
   }
   
   try {
-    // 构建搜索参数
     const params = {
       page: currentPage.value,
-      pageSize: 10,
-      sortBy: sortBy.value,
-      timeRange: timeRange.value
+      pageSize: 10
     }
     
-    // 添加搜索条件
-    if (searchQuery.value) {
-      params.keyword = searchQuery.value
-    }
     if (searchTag.value) {
       params.tag = searchTag.value
+    } else if (searchQuery.value) {
+      params.q = searchQuery.value
     }
     
-    // 调用 store 获取帖子
-    const result = await postStore.searchPosts(params)
+    console.log('搜索参数:', params)
     
-    if (result.success) {
-      if (isLoadMore) {
-        posts.value.push(...result.data)
-      } else {
-        posts.value = result.data
-      }
-      hasMore.value = result.hasMore
-      
-      // 更新相关标签
-      updateRelatedTags(result.relatedTags || [])
+    const res = await searchAPI.search(params)
+    
+    console.log('搜索响应:', res.data)
+    
+    if (isLoadMore) {
+      posts.value.push(...(res.data.posts || []))
+    } else {
+      posts.value = res.data.posts || []
+    }
+    
+    hasMore.value = res.data.hasMore || false
+    total.value = res.data.total || 0
+    relatedTags.value = res.data.relatedTags || []
+    
+    if (posts.value.length === 0) {
+      ElMessage.info('没有找到相关结果')
     }
   } catch (error) {
     console.error('搜索失败:', error)
+    ElMessage.error('搜索失败，请稍后重试')
+    posts.value = []
   } finally {
     loading.value = false
   }
-}
-
-// 更新相关标签
-const updateRelatedTags = (tags) => {
-  // 过滤掉当前搜索的标签
-  relatedTags.value = tags.filter(t => 
-    t.displayName !== searchTag.value
-  ).slice(0, 8)
 }
 
 // 加载更多
 const loadMore = () => {
   if (!loading.value && hasMore.value) {
     currentPage.value++
-    fetchPosts(true)
+    fetchSearchResults(true)
   }
 }
 
-// 排序变化
-const handleSortChange = () => {
-  fetchPosts()
-}
-
-// 筛选变化
-const handleFilterChange = () => {
-  fetchPosts()
+// 刷新搜索
+const refreshPosts = () => {
+  fetchSearchResults()
 }
 
 // 按标签搜索
 const searchByTag = (tag) => {
-  router.push({ 
-    path: '/search', 
-    query: { tag: tag.displayName || tag.name } 
-  })
+  router.push({ path: '/search', query: { tag: tag.displayName || tag.name } })
 }
 
-// 刷新搜索
-const refreshSearch = () => {
-  fetchPosts()
+// 监听排序变化
+const handleSortChange = () => {
+  fetchSearchResults()
 }
 
 // 监听路由变化
 watch(
   () => [route.query.q, route.query.tag],
-  ([newQuery, newTag]) => {
-    // 重置状态
-    currentPage.value = 1
-    posts.value = []
-    hasMore.value = true
-    
-    // 保存搜索标签到 store
-    if (newTag) {
-      tagStore.setSearchTag(newTag)
-    }
-    
-    // 执行搜索
-    fetchPosts()
+  () => {
+    fetchSearchResults()
   },
   { immediate: true }
 )
 
-// 暴露方法给父组件
-defineExpose({
-  refreshSearch
+onMounted(() => {
+  fetchSearchResults()
 })
 </script>
 
