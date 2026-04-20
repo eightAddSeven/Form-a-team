@@ -94,25 +94,30 @@ export const usePostStore = defineStore('post', () => {
     }
   }
   
-  // 获取帖子详情
-  const fetchPostById = async (id) => {
-    try {
-      const response = await postAPI.getPost(id)
-      
-      const post = {
-        ...response.data,
-        id: response.data._id || response.data.id,
-        isLiked: false,
-        isCollected: false
-      }
-      
-      currentPost.value = post
-      return { success: true, data: post }
-    } catch (error) {
-      console.error('获取帖子详情失败:', error)
-      return { success: false, error: error.message }
+ const fetchPostById = async (id) => {
+  try {
+    const response = await postAPI.getPost(id)
+    const data = response.data
+
+    // ✅ 确保 comments 是数组
+    if (!Array.isArray(data.comments)) {
+      data.comments = []
     }
+
+    const post = {
+      ...data,
+      id: data._id || data.id,
+      isLiked: false,
+      isCollected: false
+    }
+
+    currentPost.value = post
+    return { success: true, data: post }
+  } catch (error) {
+    console.error('获取帖子详情失败:', error)
+    return { success: false, error: error.message }
   }
+}
   
   // 点赞帖子
   const likePost = async (postId) => {
@@ -197,6 +202,82 @@ export const usePostStore = defineStore('post', () => {
     currentPage.value = 1
     total.value = 0
   }
+
+ // 发表评论
+const addComment = async (postId, content) => {
+  try {
+    const response = await postAPI.addComment(postId, { content });
+    const newComment = response.data;
+
+    if (!newComment.author || !newComment.author.nickname) {
+      const userStore = useUserStore()  // 需要导入
+      newComment.author = {
+        _id: userStore.userInfo?.id || userStore.userInfo?._id,
+        nickname: userStore.userInfo?.nickname || userStore.userInfo?.username || '用户',
+        avatar: userStore.userInfo?.avatar || ''
+      }
+    }
+
+    // 1. 更新帖子列表中的评论数量（只更新数量，不是数组）
+    const postInList = posts.value.find(p => (p.id || p._id) === postId);
+    if (postInList) {
+      // 如果 comments 是数字，直接加 1
+      if (typeof postInList.comments === 'number') {
+        postInList.comments += 1;
+      } else if (Array.isArray(postInList.comments)) {
+        // 如果是数组，也添加（保险处理）
+        postInList.comments.unshift(newComment);
+      }
+    }
+
+    // 2. 更新当前帖子详情
+    if (currentPost.value && (currentPost.value.id === postId || currentPost.value._id === postId)) {
+      // 确保 comments 是数组
+      if (!Array.isArray(currentPost.value.comments)) {
+        currentPost.value.comments = [];
+      }
+      currentPost.value.comments.unshift(newComment);
+      
+      // 强制触发响应式更新
+      currentPost.value = { ...currentPost.value };
+    }
+
+    return { success: true, data: newComment };
+  } catch (error) {
+    console.error('发表评论失败:', error);
+    return { success: false, error: error.response?.data?.message || error.message };
+  }
+};
+
+// 删除评论
+const deleteComment = async (postId, commentId) => {
+  try {
+    await postAPI.deleteComment(postId, commentId);
+
+    // 更新帖子列表中的评论数量
+    const postInList = posts.value.find(p => (p.id || p._id) === postId);
+    if (postInList) {
+      if (typeof postInList.comments === 'number' && postInList.comments > 0) {
+        postInList.comments -= 1;
+      } else if (Array.isArray(postInList.comments)) {
+        postInList.comments = postInList.comments.filter(c => c._id !== commentId);
+      }
+    }
+
+    // 更新当前帖子详情
+    if (currentPost.value && (currentPost.value.id === postId || currentPost.value._id === postId)) {
+      if (Array.isArray(currentPost.value.comments)) {
+        currentPost.value.comments = currentPost.value.comments.filter(c => c._id !== commentId);
+        currentPost.value = { ...currentPost.value };
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('删除评论失败:', error);
+    return { success: false, error: error.response?.data?.message || error.message };
+  }
+};
   
   return {
     posts,
@@ -212,6 +293,8 @@ export const usePostStore = defineStore('post', () => {
     likePost,
     deletePost,
     searchPosts,
-    reset
+    reset,
+    addComment,
+    deleteComment,
   }
 })

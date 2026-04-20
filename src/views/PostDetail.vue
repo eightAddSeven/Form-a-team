@@ -79,7 +79,7 @@
         
         <!-- 评论区 -->
         <div class="comments-section" id="comments">
-          <h3>评论 ({{ post.comments?.length || 0 }})</h3>
+          <h3>评论 ({{ post.commentCount || post.comments?.length || 0 }})</h3>
           
           <!-- 评论输入框 -->
           <div class="comment-input-wrapper">
@@ -90,8 +90,8 @@
               class="comment-textarea"
               ref="commentInput"
             ></textarea>
-            <button @click="submitComment" class="submit-comment-btn" :disabled="!userStore.isLoggedIn">
-              {{ userStore.isLoggedIn ? '发表评论' : '请先登录' }}
+            <button @click="submitComment" class="submit-comment-btn" :disabled="!userStore.isLoggedIn || submitting">
+              {{ submitting ? '发表中...' : (userStore.isLoggedIn ? '发表评论' : '请先登录') }}
             </button>
           </div>
           
@@ -113,6 +113,16 @@
                   <span class="comment-time">{{ formatTime(comment.createdAt) }}</span>
                 </div>
                 <p class="comment-text">{{ comment.content }}</p>
+
+                <!-- 删除按钮，仅当有权限时显示 -->
+                <button 
+                  v-if="canDeleteComment(comment)" 
+                  class="delete-comment-btn" 
+                  @click="handleDeleteComment(comment._id)"
+                  :disabled="deleting"
+                >
+                删除
+                </button>
               </div>
             </div>
           </div>
@@ -161,9 +171,10 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const postStore = usePostStore()
-
+const submitting = ref(false)
+const deleting = ref(false)
 const loading = ref(true)
-const post = ref(null)
+const post = computed(() => postStore.currentPost)
 const newComment = ref('')
 const commentInput = ref(null)
 
@@ -252,34 +263,86 @@ const toggleFollow = () => {
   ElMessage.success('关注成功')
 }
 
-const submitComment = async () => {
-  if (!newComment.value.trim()) {
-    ElMessage.warning('评论内容不能为空')
-    return
-  }
-  
-  ElMessage.info('评论功能开发中')
-  newComment.value = ''
-}
-
-// 获取帖子详情
 const fetchPostDetail = async () => {
   loading.value = true
   const postId = route.params.id
-  
   try {
-    const response = await postAPI.getPost(postId)
-    post.value = {
-      ...response.data,
-      isLiked: false,
-      isCollected: false
+    const result = await postStore.fetchPostById(postId)
+    if (!result.success) {
+      ElMessage.error('帖子不存在')
+      postStore.currentPost = null
+    } else {
+      // ✅ 确保 comments 为数组
+      const postData = postStore.currentPost
+      if (!Array.isArray(postData.comments)) {
+        postData.comments = []
+      }
     }
-    console.log('帖子详情:', post.value)
   } catch (error) {
     console.error('获取帖子详情失败:', error)
-    post.value = null
+    postStore.currentPost = null
   } finally {
     loading.value = false
+  }
+}
+
+// 判断当前用户是否可以删除某条评论
+const canDeleteComment = (comment) => {
+  if (!userStore.isLoggedIn) return false
+  const currentUserId = userStore.userInfo?._id || userStore.userInfo?.id
+  if (!currentUserId) return false
+
+  // 评论作者或帖子作者可以删除
+  const commentAuthorId = comment.author?._id || comment.author?.id
+  const postAuthorId = post.value?.author?._id || post.value?.author?.id
+
+  return currentUserId === commentAuthorId || currentUserId === postAuthorId
+}
+
+// 提交评论
+const submitComment = async () => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+
+  const content = newComment.value.trim()
+  if (!content) {
+    ElMessage.warning('评论内容不能为空')
+    return
+  }
+
+  submitting.value = true
+  try {
+    const result = await postStore.addComment(route.params.id, content)
+    if (result.success) {
+      newComment.value = ''
+      ElMessage.success('评论成功')
+    } else {
+      ElMessage.error(result.error || '评论失败')
+    }
+  } catch (error) {
+    ElMessage.error('评论失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+// 删除评论
+const handleDeleteComment = async (commentId) => {
+  deleting.value = true
+  try {
+    const result = await postStore.deleteComment(route.params.id, commentId)
+    if (result.success) {
+      ElMessage.success('删除成功')
+    } else {
+      ElMessage.error(result.error || '删除失败')
+    }
+  } catch (error) {
+    ElMessage.error('删除失败')
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -627,6 +690,27 @@ onMounted(() => {
 .related-post-item span {
   font-size: 12px;
   color: #94a3b8;
+}
+.delete-comment-btn {
+  margin-top: 8px;
+  padding: 4px 12px;
+  background: transparent;
+  border: 1px solid #ef4444;
+  border-radius: 16px;
+  color: #ef4444;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.delete-comment-btn:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.delete-comment-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 768px) {

@@ -34,13 +34,14 @@ router.get('/', async (req, res) => {
     const total = await Post.countDocuments(query)
     
     // ✅ 关键修复：将 likes 和 comments 转换为数字
+    // 列表接口中，也改为返回 commentCount 和 comments（可只返回数量以节省流量）
     const responsePosts = posts.map(post => ({
       ...post,
       id: post._id,
       createTime: post.createdAt,
       likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
-      comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
-      tags: Array.isArray(post.tags) ? post.tags : [],  // ✅ 确保是数组
+      comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0), // 列表页保持数字（数量）
+    // 不需要完整的 comments 数组，减少传输数据
       isLiked: false,
       isCollected: false
     }))
@@ -172,7 +173,7 @@ router.post('/', auth, async (req, res) => {
 })
 
 // ==========================================
-// 4. 获取单个帖子详情
+// 4. 获取单个帖子详情（修复版）
 // ==========================================
 router.get('/:id', async (req, res) => {
   try {
@@ -180,20 +181,25 @@ router.get('/:id', async (req, res) => {
       .populate('author', 'nickname avatar college bio')
       .populate('comments.author', 'nickname avatar')
       .lean()
-    
+
     if (!post) {
       return res.status(404).json({ message: '帖子不存在' })
     }
-    
+
     await Post.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
-    
-    // ✅ 转换 likes 和 comments 为数字
+
+    // ✅ 保留 comments 为数组，新增 commentCount 字段
+    const commentsArray = Array.isArray(post.comments) ? post.comments : []
+    const likesArray = Array.isArray(post.likes) ? post.likes : []
+
     res.json({
       ...post,
       id: post._id,
       createTime: post.createdAt,
-      likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
-      comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
+      comments: commentsArray,                      // 保留数组
+      commentCount: commentsArray.length,           // 新增数量字段
+      likes: likesArray,
+      likeCount: likesArray.length,
       isLiked: false,
       isCollected: false
     })
@@ -238,39 +244,89 @@ router.post('/:id/like', auth, async (req, res) => {
 })
 
 // ==========================================
-// 6. 添加评论
+// 6. 添加评论（健壮版）
 // ==========================================
 router.post('/:id/comments', auth, async (req, res) => {
   try {
-    const { content } = req.body
+    const { content } = req.body;
     
     if (!content || content.trim() === '') {
-      return res.status(400).json({ message: '评论内容不能为空' })
+      return res.status(400).json({ message: '评论内容不能为空' });
     }
     
-    const post = await Post.findById(req.params.id)
+    // 查找帖子
+    const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({ message: '帖子不存在' })
+      return res.status(404).json({ message: '帖子不存在' });
     }
     
-    const comment = {
+    // 添加评论子文档
+    const newComment = {
       author: req.userId,
       content: content.trim(),
       createdAt: new Date()
-    }
+    };
     
-    post.comments.push(comment)
-    await post.save()
+    post.comments.push(newComment);
     
-    await post.populate('comments.author', 'nickname avatar')
-    const newComment = post.comments[post.comments.length - 1]
+    // 保存帖子
+    const savedPost = await post.save();
+    console.log('✅ 评论已保存，当前评论数:', savedPost.comments.length);
     
-    res.status(201).json(newComment)
+    // 重新查询并 populate 作者信息（只 populate 最新评论）
+    const populatedPost = await Post.findById(post._id)
+      .populate({
+        path: 'comments.author',
+        select: 'nickname avatar'
+      });
+    
+    const addedComment = populatedPost.comments[populatedPost.comments.length - 1];
+    
+    // 返回新评论
+    res.status(201).json(addedComment);
   } catch (error) {
-    console.error('评论失败:', error)
-    res.status(500).json({ message: '评论失败' })
+    console.error('❌ 评论保存失败:', error);
+    res.status(500).json({ message: '评论失败', error: error.message });
   }
-})
+});
+
+// ==========================================
+// 6.5 删除评论
+// ==========================================
+router.delete('/:id/comments/:commentId', auth, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ message: '帖子不存在' });
+    }
+
+    // 找到对应的评论子文档
+    const comment = post.comments.id(req.params.commentId);
+    if (!comment) {
+      return res.status(404).json({ message: '评论不存在' });
+    }
+
+    // 权限检查：只有评论作者或帖子作者可以删除
+    const isCommentAuthor = comment.author.toString() === req.userId;
+    const isPostAuthor = post.author.toString() === req.userId;
+
+    if (!isCommentAuthor && !isPostAuthor) {
+      return res.status(403).json({ message: '没有删除此评论的权限' });
+    }
+
+    // 删除评论
+    comment.deleteOne();
+    await post.save();
+
+    res.json({ 
+      message: '删除成功',
+      commentId: req.params.commentId 
+    });
+  } catch (error) {
+    console.error('删除评论失败:', error);
+    res.status(500).json({ message: '删除评论失败', error: error.message });
+  }
+});
 
 // ==========================================
 // 7. 删除帖子

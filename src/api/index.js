@@ -84,11 +84,11 @@ export const postAPI = {
   // 点赞/取消点赞
   likePost: (id) => API.post(`/posts/${id}/like`),
   
-  // 添加评论
-  addComment: (id, data) => API.post(`/posts/${id}/comments`, data),
-  
-  // 删除评论
-  deleteComment: (postId, commentId) => API.delete(`/posts/${postId}/comments/${commentId}`)
+   // 发表评论（修改前：request.post → 修改后：API.post）
+  addComment: (postId, data) => API.post(`/posts/${postId}/comments`, data),
+
+  // 删除评论（修改前：request.delete → 修改后：API.delete）
+  deleteComment: (postId, commentId) => API.delete(`/posts/${postId}/comments/${commentId}`),
 }
 
 // 搜索 API
