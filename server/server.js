@@ -62,3 +62,6 @@ const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`🚀 服务器运行在 http://localhost:${PORT}`)
 })
+
+const Post = require('./models/Post')
+Post.findOne().then(p => console.log('heatScore 类型:', typeof p?.heatScore, '值:', p?.heatScore))

@@ -27,6 +27,9 @@
             </div>
             
             <div class="user-actions">
+              <!-- 调试信息（可选保留） -->
+              <!-- <span style="font-size:12px; color:#999;">{{ isOwnProfile ? '自己' : '他人' }}</span> -->
+              
               <template v-if="isOwnProfile">
                 <button class="edit-profile-btn" @click="openEditModal">
                   ✏️ 编辑资料
@@ -36,7 +39,11 @@
                 </button>
               </template>
               <template v-else>
-                <button class="follow-btn" @click="toggleFollow" :class="{ following: isFollowing }">
+                <button 
+                  class="follow-btn" 
+                  @click="toggleFollow" 
+                  :class="{ following: isFollowing }"
+                >
                   {{ isFollowing ? '✓ 已关注' : '+ 关注' }}
                 </button>
                 <button class="message-btn" @click="sendMessage">
@@ -107,15 +114,16 @@
       </div>
       
       <div class="content-panel">
+        <!-- 帖子面板 -->
         <div v-if="activeTab === 'posts'" class="posts-panel">
           <div class="panel-header">
-            <h3>我的帖子</h3>
-            <button class="filter-btn" @click="showPostFilter = !showPostFilter">
+            <h3>{{ isOwnProfile ? '我的帖子' : 'TA的帖子' }}</h3>
+            <button v-if="isOwnProfile" class="filter-btn" @click="showPostFilter = !showPostFilter">
               筛选 ▼
             </button>
           </div>
           
-          <div class="post-filter" v-if="showPostFilter">
+          <div class="post-filter" v-if="showPostFilter && isOwnProfile">
             <select v-model="postFilter" class="filter-select">
               <option value="all">全部帖子</option>
               <option value="published">已发布</option>
@@ -128,7 +136,7 @@
             <div v-if="filteredPosts.length === 0" class="empty-state">
               <span class="empty-icon">📝</span>
               <p>还没有发布任何帖子</p>
-              <button class="create-post-btn" @click="createNewPost">
+              <button v-if="isOwnProfile" class="create-post-btn" @click="createNewPost">
                 发布第一篇帖子
               </button>
             </div>
@@ -139,22 +147,18 @@
                   <h4 class="post-title" @click="viewPost(post.id)">
                     {{ post.title || '无标题' }}
                   </h4>
-                  <div class="post-actions">
-                    <button class="action-btn" @click="editPost(post)" title="编辑">
-                      ✏️
-                    </button>
-                    <button class="action-btn" @click="deletePost(post)" title="删除">
-                      🗑️
-                    </button>
+                  <div v-if="isOwnProfile" class="post-actions">
+                    <button class="action-btn" @click="editPost(post)" title="编辑">✏️</button>
+                    <button class="action-btn" @click="deletePost(post)" title="删除">🗑️</button>
                   </div>
                 </div>
                 <p class="post-preview">{{ post.content }}</p>
                 <div class="post-meta">
-                  <span>{{ new Date(post.createTime).toLocaleDateString() }}</span>
+                  <span>{{ formatDate(post.createTime) }}</span>
                   <span>❤️ {{ post.likes }}</span>
                   <span>💬 {{ post.comments }}</span>
                   <span>👁️ {{ post.views || 0 }}</span>
-                  <span class="post-status" :class="post.status">
+                  <span class="post-status" :class="post.status" v-if="isOwnProfile">
                     {{ getStatusText(post.status) }}
                   </span>
                 </div>
@@ -163,10 +167,11 @@
           </div>
         </div>
         
+        <!-- 收藏面板 -->
         <div v-if="activeTab === 'collections'" class="collections-panel">
           <div class="panel-header">
-            <h3>我的收藏</h3>
-            <button class="filter-btn" @click="showCollectionFilter = !showCollectionFilter">
+            <h3>{{ isOwnProfile ? '我的收藏' : 'TA的收藏' }}</h3>
+            <button v-if="isOwnProfile" class="filter-btn" @click="showCollectionFilter = !showCollectionFilter">
               分类 ▼
             </button>
           </div>
@@ -186,28 +191,31 @@
           </div>
           
           <div class="collections-grid">
+            <div v-if="filteredCollections.length === 0" class="empty-state">
+              <span class="empty-icon">⭐</span>
+              <p>暂无收藏</p>
+            </div>
             <div v-for="item in filteredCollections" :key="item.id" class="collection-card">
               <div class="collection-type">
                 <span :class="'type-badge ' + item.type">{{ item.typeText }}</span>
-                <button class="uncollect-btn" @click="removeCollection(item)" title="取消收藏">
-                  ✕
-                </button>
+                <button v-if="isOwnProfile" class="uncollect-btn" @click="removeCollection(item)" title="取消收藏">✕</button>
               </div>
               <h4 class="collection-title" @click="viewCollection(item)">
                 {{ item.title }}
               </h4>
               <p class="collection-desc">{{ item.description }}</p>
               <div class="collection-meta">
-                <span>{{ item.author }}</span>
+                  <span>{{ item.author?.nickname || item.author?.username || '未知作者' }}</span>
                 <span>{{ item.collectTime }}</span>
               </div>
             </div>
           </div>
         </div>
         
-        <div v-if="activeTab === 'following' || activeTab === 'followers'" class="follow-panel">
+        <!-- 关注/粉丝面板 -->
+                <div v-if="activeTab === 'following' || activeTab === 'followers'" class="follow-panel">
           <div class="panel-header">
-            <h3>{{ activeTab === 'following' ? '我的关注' : '我的粉丝' }}</h3>
+            <h3>{{ activeTab === 'following' ? (isOwnProfile ? '我的关注' : 'TA的关注') : (isOwnProfile ? '我的粉丝' : 'TA的粉丝') }}</h3>
             <input 
               type="text" 
               v-model="followSearch" 
@@ -217,13 +225,30 @@
           </div>
           
           <div class="follow-list">
+            <div v-if="filteredFollows.length === 0" class="empty-state">
+              <span class="empty-icon">👤</span>
+              <p>{{ activeTab === 'following' ? '暂无关注' : '暂无粉丝' }}</p>
+            </div>
             <div v-for="user in filteredFollows" :key="user.id" class="follow-item">
-              <img :src="user.avatar || defaultAvatar" alt="avatar" class="follow-avatar" />
+              <img 
+                :src="user.avatar || defaultAvatar" 
+                alt="avatar" 
+                class="follow-avatar" 
+                @click="router.push('/profile/' + user.id)"
+                style="cursor: pointer;"
+              />
               <div class="follow-info">
-                <span class="follow-name">{{ user.nickname }}</span>
+                <span 
+                  class="follow-name" 
+                  @click="router.push('/profile/' + user.id)"
+                  style="cursor: pointer;"
+                >
+                  {{ user.nickname }}
+                </span>
                 <span class="follow-bio">{{ user.bio || '暂无简介' }}</span>
               </div>
               <button 
+                v-if="!isOwnProfile || activeTab === 'followers'"
                 class="follow-action-btn"
                 :class="{ following: user.isFollowing }"
                 @click="toggleFollowUser(user)"
@@ -234,6 +259,7 @@
           </div>
         </div>
         
+        <!-- 设置面板 -->
         <div v-if="activeTab === 'settings' && isOwnProfile" class="settings-panel">
           <div class="settings-section">
             <h4>账号设置</h4>
@@ -295,6 +321,7 @@
       </div>
     </div>
     
+    <!-- 编辑资料弹窗 -->
     <div class="modal-overlay" v-if="showEditModal" @click="closeEditModal">
       <div class="edit-modal" @click.stop>
         <div class="modal-header">
@@ -378,55 +405,35 @@ import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AvatarUpload from '@/components/profile/AvatarUpload.vue'
 import CoverUpload from '@/components/profile/CoverUpload.vue'
-import axios from 'axios'
-
-const API_BASE = 'http://localhost:3000/api'
+import { userAPI, postAPI } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-// 默认图片
 const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
 
-// 当前查看的用户ID
+// 当前查看的用户ID（优先路由参数，否则为当前登录用户）
 const userId = computed(() => {
   const routeId = route.params.id
   if (routeId) return routeId
   const storeUser = userStore.userInfo
-  return storeUser?.id || storeUser?._id
+  return storeUser?._id || storeUser?.id || null
 })
 
-// 是否是自己的主页
+// 是否为自己的主页
 const isOwnProfile = computed(() => {
   if (!userStore.isLoggedIn) return false
-  const currentId = userStore.userInfo?.id || userStore.userInfo?._id
-  return currentId === userId.value
+  const currentId = userStore.userInfo?._id || userStore.userInfo?.id
+  return currentId && currentId === userId.value
 })
 
-// 用户信息
 const userInfo = ref({
-  id: '',
-  username: '',
-  nickname: '',
-  avatar: '',
-  cover: '',
-  bio: '',
-  college: '',
-  major: '',
-  grade: '',
-  email: '',
-  phone: '',
-  location: '',
-  verified: false,
-  level: 1,
-  following: 0,
-  followers: 0,
-  posts: 0,
-  likes: 0
+  id: '', username: '', nickname: '', avatar: '', cover: '', bio: '',
+  college: '', major: '', grade: '', email: '', phone: '', location: '',
+  verified: false, level: 1, following: 0, followers: 0, posts: 0, likes: 0
 })
 
-// 当前活跃标签页
 const activeTab = ref('posts')
 const tabs = ref([
   { key: 'posts', label: '帖子', icon: '📝' },
@@ -435,22 +442,14 @@ const tabs = ref([
   { key: 'followers', label: '粉丝', icon: '👥' }
 ])
 
-// 关注状态
 const isFollowing = ref(false)
-
-// 帖子数据
 const userPosts = ref([])
 const loadingPosts = ref(false)
-
-// 收藏数据
 const collections = ref([])
-
-// 关注/粉丝列表
 const followList = ref([])
 const followSearch = ref('')
 const loadingFollow = ref(false)
 
-// 标签计数
 const tabCounts = computed(() => ({
   posts: userPosts.value.length,
   collections: collections.value.length,
@@ -458,430 +457,264 @@ const tabCounts = computed(() => ({
   followers: userInfo.value.followers || 0
 }))
 
-// 帖子筛选
 const postFilter = ref('all')
 const showPostFilter = ref(false)
-
 const filteredPosts = computed(() => {
   if (postFilter.value === 'all') return userPosts.value
   return userPosts.value.filter(p => p.status === postFilter.value)
 })
-
 const getStatusText = (status) => {
-  const statusMap = { published: '已发布', draft: '草稿', archived: '已归档' }
-  return statusMap[status] || status
+  const map = { published: '已发布', draft: '草稿', archived: '已归档' }
+  return map[status] || status
+}
+const formatDate = (time) => {
+  if (!time) return ''
+  return new Date(time).toLocaleDateString('zh-CN')
 }
 
-// 收藏筛选
 const collectionFilter = ref('全部')
 const collectionTags = ref(['全部', '帖子', '竞赛', '项目', '问答'])
 const showCollectionFilter = ref(false)
-
 const filteredCollections = computed(() => {
   if (collectionFilter.value === '全部') return collections.value
   const typeMap = { '帖子': 'post', '竞赛': 'competition', '项目': 'project', '问答': 'question' }
   return collections.value.filter(c => c.type === typeMap[collectionFilter.value])
 })
-
-// 关注/粉丝筛选
 const filteredFollows = computed(() => {
   if (!followSearch.value) return followList.value
   return followList.value.filter(u => 
-    u.nickname?.includes(followSearch.value) || 
-    u.bio?.includes(followSearch.value)
+    u.nickname?.includes(followSearch.value) || u.bio?.includes(followSearch.value)
   )
 })
 
-// 隐私设置
-const privacySettings = ref({
-  showCollections: true,
-  showFollowing: true
-})
-
-// 编辑资料弹窗
+const privacySettings = ref({ showCollections: true, showFollowing: true })
 const showEditModal = ref(false)
 const editForm = ref({
-  avatar: '',
-  nickname: '',
-  bio: '',
-  college: '',
-  major: '',
-  grade: '',
-  location: ''
+  avatar: '', nickname: '', bio: '', college: '', major: '', grade: '', location: ''
 })
 
-// ==========================================
-// 加载用户信息
-// ==========================================
+// ========== 数据加载 ==========
 const loadUserInfo = async () => {
   if (!userId.value) return
-  
   try {
-    const token = localStorage.getItem('token')
-    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    const res = await userAPI.getUser(userId.value)
+    const data = res.data
+
+    // 修正关注数和粉丝数：如果后端返回的是数组，取其长度；如果是数字，直接使用
+    const followingCount = typeof data.following === 'number' 
+      ? data.following 
+      : (Array.isArray(data.following) ? data.following.length : 0)
     
-    const res = await axios.get(`${API_BASE}/users/${userId.value}`, { headers })
-    
+    const followersCount = typeof data.followers === 'number' 
+      ? data.followers 
+      : (Array.isArray(data.followers) ? data.followers.length : 0)
+
     userInfo.value = {
       ...userInfo.value,
-      ...res.data,
-      id: res.data.id || res.data._id
+      ...data,
+      id: data._id || data.id,
+      following: followingCount,
+      followers: followersCount
+    }
+
+    // 检查是否已关注（仅他人主页）
+    if (!isOwnProfile.value && userStore.userInfo) {
+      const currentId = userStore.userInfo._id || userStore.userInfo.id
+      const currentUserRes = await userAPI.getUser(currentId)
+      // 注意：currentUserRes.data.following 可能是数组
+      const followingArray = currentUserRes.data.following
+      isFollowing.value = Array.isArray(followingArray) 
+        ? followingArray.includes(userId.value) 
+        : false
     }
   } catch (error) {
     console.error('加载用户信息失败:', error)
-    // 如果是自己的主页，使用 store 中的数据
-    if (isOwnProfile.value && userStore.userInfo) {
-      userInfo.value = {
-        ...userInfo.value,
-        ...userStore.userInfo,
-        id: userStore.userInfo.id || userStore.userInfo._id
-      }
-    }
   }
 }
 
-// ==========================================
-// 加载用户帖子
-// ==========================================
 const loadUserPosts = async () => {
   if (!userId.value) return
-  
   loadingPosts.value = true
   try {
-    const res = await axios.get(`${API_BASE}/posts/user/${userId.value}`)
-    userPosts.value = res.data.posts || res.data || []
+    const res = await userAPI.getUserPosts(userId.value)
+    const postsData = res.data.posts || res.data.data || []
+    userPosts.value = postsData.map(post => ({
+      ...post,
+      id: post._id || post.id,
+      status: post.status || 'published',
+      likes: post.likes?.length || 0,
+      comments: post.comments?.length || 0,
+      views: post.views || 0,
+      createTime: post.createdAt
+    }))
   } catch (error) {
-    console.error('获取帖子列表失败:', error)
     userPosts.value = []
   } finally {
     loadingPosts.value = false
   }
 }
 
-// ==========================================
-// 加载关注列表
-// ==========================================
+const loadCollections = async () => {
+  if (!userId.value) return
+  try {
+    const res = await userAPI.getUserCollections(userId.value)
+    const data = res.data.data || res.data.collections || []
+    collections.value = data.map(item => ({
+      ...item,
+      id: item._id || item.id,
+      type: item.type || 'post',
+      typeText: item.type === 'post' ? '帖子' : '内容',
+      collectTime: item.createdAt ? new Date(item.createdAt).toLocaleDateString('zh-CN') : ''
+    }))
+  } catch (error) {
+    collections.value = []
+  }
+}
+
 const loadFollowing = async () => {
   if (!userId.value) return
-  
   loadingFollow.value = true
   try {
-    const res = await axios.get(`${API_BASE}/users/${userId.value}/following`)
+    const res = await userAPI.getFollowing(userId.value)
     followList.value = res.data || []
   } catch (error) {
-    console.error('获取关注列表失败:', error)
     followList.value = []
   } finally {
     loadingFollow.value = false
   }
 }
 
-// ==========================================
-// 加载粉丝列表
-// ==========================================
 const loadFollowers = async () => {
   if (!userId.value) return
-  
   loadingFollow.value = true
   try {
-    const token = localStorage.getItem('token')
-    const headers = token ? { Authorization: `Bearer ${token}` } : {}
-    const res = await axios.get(`${API_BASE}/users/${userId.value}/followers`, { headers })
+    const res = await userAPI.getFollowers(userId.value)
     followList.value = res.data || []
   } catch (error) {
-    console.error('获取粉丝列表失败:', error)
     followList.value = []
   } finally {
     loadingFollow.value = false
   }
 }
 
-// ==========================================
-// 关注/取消关注
-// ==========================================
+// ========== 交互 ==========
 const toggleFollow = async () => {
+  console.log('=== toggleFollow 调用 ===')
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
     router.push('/login')
     return
   }
-  
   try {
-    const token = localStorage.getItem('token')
-    const res = await axios.post(
-      `${API_BASE}/users/${userId.value}/follow`, 
-      {}, 
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
-    
-    isFollowing.value = res.data.isFollowing
-    userInfo.value.followers = res.data.followersCount
-    
-    ElMessage.success(isFollowing.value ? '关注成功' : '已取消关注')
+    const res = await userAPI.followUser(userId.value)
+    const { isFollowing: newStatus, followersCount, followingCount } = res.data
+    isFollowing.value = newStatus
+    userInfo.value.followers = followersCount
+    if (followingCount !== undefined) userInfo.value.following = followingCount
+    else userInfo.value.following = (userInfo.value.following || 0) + (newStatus ? 1 : -1)
+    if (isOwnProfile.value) {
+      userStore.updateUserInfo({ followers: followersCount, following: userInfo.value.following })
+    }
+    ElMessage.success(newStatus ? '关注成功' : '已取消关注')
+    if (activeTab.value === 'following') loadFollowing()
   } catch (error) {
-    console.error('关注操作失败:', error)
     ElMessage.error(error.response?.data?.message || '操作失败')
   }
 }
 
-// ==========================================
-// 关注/取消关注列表中的用户
-// ==========================================
 const toggleFollowUser = async (user) => {
-  if (!userStore.isLoggedIn) {
-    ElMessage.warning('请先登录')
-    router.push('/login')
-    return
-  }
-  
+  if (!userStore.isLoggedIn) return ElMessage.warning('请先登录')
   try {
-    const token = localStorage.getItem('token')
-    const res = await axios.post(
-      `${API_BASE}/users/${user.id}/follow`, 
-      {}, 
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
-    
+    const res = await userAPI.followUser(user.id)
     user.isFollowing = res.data.isFollowing
-    
-    if (activeTab.value === 'following') {
-      loadFollowing()
-    } else if (activeTab.value === 'followers') {
-      loadFollowers()
-    }
-    
+    if (activeTab.value === 'following') loadFollowing()
+    else if (activeTab.value === 'followers') loadFollowers()
     ElMessage.success(user.isFollowing ? '关注成功' : '已取消关注')
   } catch (error) {
     ElMessage.error('操作失败')
   }
 }
 
-// ==========================================
-// 发送私信
-// ==========================================
-const sendMessage = () => {
-  if (!userStore.isLoggedIn) {
-    ElMessage.warning('请先登录')
-    router.push('/login')
-    return
+const deletePost = async (post) => {
+  try {
+    await ElMessageBox.confirm('确定删除？', '提示', { type: 'warning' })
+    await postAPI.deletePost(post.id)
+    userPosts.value = userPosts.value.filter(p => p.id !== post.id)
+    userInfo.value.posts = Math.max(0, userInfo.value.posts - 1)
+    ElMessage.success('删除成功')
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('删除失败')
   }
-  router.push(`/messages?user=${userId.value}`)
 }
 
-// ==========================================
-// 处理封面更新
-// ==========================================
+const viewCollection = (item) => {
+  if (item.type === 'post') router.push(`/post/${item.id}`)
+}
+const removeCollection = async (item) => {
+  try {
+    await postAPI.collectPost(item.id)
+    collections.value = collections.value.filter(c => c.id !== item.id)
+    ElMessage.success('已取消收藏')
+  } catch (error) {
+    ElMessage.error('操作失败')
+  }
+}
+
 const handleCoverUpdate = (url) => {
   userInfo.value.cover = url
-  if (isOwnProfile.value) {
-    userStore.updateUserInfo({ cover: url })
-  }
+  if (isOwnProfile.value) userStore.updateUserInfo({ cover: url })
   ElMessage.success('封面已更新')
 }
-
-// ==========================================
-// 处理头像更新
-// ==========================================
 const handleAvatarUpdate = (url) => {
   userInfo.value.avatar = url
-  if (isOwnProfile.value) {
-    userStore.updateUserInfo({ avatar: url })
-  }
+  if (isOwnProfile.value) userStore.updateUserInfo({ avatar: url })
   ElMessage.success('头像已更新')
 }
-
-// ==========================================
-// 分享个人主页
-// ==========================================
 const shareProfile = () => {
   const url = window.location.href
-  navigator.clipboard?.writeText(url).then(() => {
-    ElMessage.success('个人主页链接已复制')
-  }).catch(() => {
-    ElMessage.info(`分享链接: ${url}`)
-  })
+  navigator.clipboard?.writeText(url).then(() => ElMessage.success('链接已复制'))
 }
-
-// ==========================================
-// 打开编辑资料弹窗
-// ==========================================
 const openEditModal = () => {
-  editForm.value = {
-    avatar: userInfo.value.avatar,
-    nickname: userInfo.value.nickname || '',
-    bio: userInfo.value.bio || '',
-    college: userInfo.value.college || '',
-    major: userInfo.value.major || '',
-    grade: userInfo.value.grade || '',
-    location: userInfo.value.location || ''
-  }
+  editForm.value = { ...userInfo.value }
   showEditModal.value = true
 }
-
-// ==========================================
-// 关闭编辑资料弹窗
-// ==========================================
-const closeEditModal = () => {
-  showEditModal.value = false
-}
-
-// ==========================================
-// 上传头像（占位）
-// ==========================================
-const uploadAvatar = () => {
-  ElMessage.info('上传头像功能开发中...')
-}
-
-// ==========================================
-// 保存个人资料
-// ==========================================
+const closeEditModal = () => { showEditModal.value = false }
+const uploadAvatar = () => ElMessage.info('功能开发中')
 const saveProfile = async () => {
   try {
-    const token = localStorage.getItem('token')
-    await axios.put(
-      `${API_BASE}/users/profile`, 
-      editForm.value,
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
-    
-    userInfo.value = { ...userInfo.value, ...editForm.value }
+    await userAPI.updateProfile(editForm.value)
+    Object.assign(userInfo.value, editForm.value)
     userStore.updateUserInfo(editForm.value)
     ElMessage.success('保存成功')
     closeEditModal()
   } catch (error) {
-    console.error('保存失败:', error)
     ElMessage.error('保存失败')
   }
 }
-
-// ==========================================
-// 创建新帖子
-// ==========================================
-const createNewPost = () => {
+const createNewPost = () => router.push('/')
+const viewPost = (id) => router.push(`/post/${id}`)
+const editPost = () => ElMessage.info('功能开发中')
+const sendMessage = () => router.push(`/messages?user=${userId.value}`)
+const changeEmail = () => ElMessage.info('功能开发中')
+const bindPhone = () => ElMessage.info('功能开发中')
+const changePassword = () => ElMessage.info('功能开发中')
+const logout = async () => {
+  await ElMessageBox.confirm('确定退出？', '提示', { type: 'warning' })
+  userStore.logout()
+  router.push('/')
+}
+const deleteAccount = async () => {
+  await ElMessageBox.confirm('注销后数据永久删除', '危险操作', { type: 'error' })
+  userStore.logout()
   router.push('/')
 }
 
-// ==========================================
-// 查看帖子
-// ==========================================
-const viewPost = (postId) => {
-  router.push(`/post/${postId}`)
-}
-
-// ==========================================
-// 编辑帖子
-// ==========================================
-const editPost = () => {
-  ElMessage.info('编辑功能开发中...')
-}
-
-// ==========================================
-// 删除帖子
-// ==========================================
-const deletePost = (post) => {
-  ElMessageBox.confirm('确定要删除这篇帖子吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(async () => {
-    try {
-      const token = localStorage.getItem('token')
-      await axios.delete(`${API_BASE}/posts/${post.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      userPosts.value = userPosts.value.filter(p => p.id !== post.id)
-      userInfo.value.posts = Math.max(0, (userInfo.value.posts || 1) - 1)
-      ElMessage.success('删除成功')
-    } catch (error) {
-      ElMessage.error('删除失败')
-    }
-  }).catch(() => {})
-}
-
-// ==========================================
-// 查看收藏
-// ==========================================
-const viewCollection = (item) => {
-  if (item.type === 'post') {
-    router.push(`/post/${item.id}`)
-  } else {
-    ElMessage.info('查看详情功能开发中...')
-  }
-}
-
-// ==========================================
-// 取消收藏
-// ==========================================
-const removeCollection = (item) => {
-  collections.value = collections.value.filter(c => c.id !== item.id)
-  ElMessage.success('已取消收藏')
-}
-
-// ==========================================
-// 修改邮箱
-// ==========================================
-const changeEmail = () => {
-  ElMessage.info('修改邮箱功能开发中...')
-}
-
-// ==========================================
-// 绑定手机
-// ==========================================
-const bindPhone = () => {
-  ElMessage.info('绑定手机功能开发中...')
-}
-
-// ==========================================
-// 修改密码
-// ==========================================
-const changePassword = () => {
-  ElMessage.info('修改密码功能开发中...')
-}
-
-// ==========================================
-// 退出登录
-// ==========================================
-const logout = () => {
-  ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(() => {
-    userStore.logout()
-    router.push('/')
-    ElMessage.success('已退出登录')
-  }).catch(() => {})
-}
-
-// ==========================================
-// 注销账号
-// ==========================================
-const deleteAccount = () => {
-  ElMessageBox.confirm('注销账号后所有数据将被永久删除，确定要继续吗？', '危险操作', {
-    confirmButtonText: '确定注销',
-    cancelButtonText: '取消',
-    type: 'error'
-  }).then(() => {
-    ElMessage.success('账号已注销')
-    userStore.logout()
-    router.push('/')
-  }).catch(() => {})
-}
-
-// ==========================================
-// 监听标签页切换
-// ==========================================
-watch(activeTab, (newTab) => {
-  if (newTab === 'following') {
-    loadFollowing()
-  } else if (newTab === 'followers') {
-    loadFollowers()
-  }
+// 监听
+watch(activeTab, (tab) => {
+  if (tab === 'following') loadFollowing()
+  else if (tab === 'followers') loadFollowers()
+  else if (tab === 'collections') loadCollections()
 })
-
-// ==========================================
-// 监听路由变化
-// ==========================================
 watch(() => route.params.id, () => {
   loadUserInfo()
   loadUserPosts()
@@ -889,19 +722,11 @@ watch(() => route.params.id, () => {
   activeTab.value = 'posts'
 })
 
-// ==========================================
-// 初始化
-// ==========================================
 onMounted(async () => {
   await loadUserInfo()
   await loadUserPosts()
-  
-  // 如果是自己的主页，添加设置标签
-  if (isOwnProfile.value) {
-    const hasSettings = tabs.value.find(t => t.key === 'settings')
-    if (!hasSettings) {
-      tabs.value.push({ key: 'settings', label: '设置', icon: '⚙️' })
-    }
+  if (isOwnProfile.value && !tabs.value.find(t => t.key === 'settings')) {
+    tabs.value.push({ key: 'settings', label: '设置', icon: '⚙️' })
   }
 })
 </script>
@@ -1030,6 +855,7 @@ onMounted(async () => {
 .user-actions {
   display: flex;
   gap: 12px;
+  align-items: center;
 }
 
 .edit-profile-btn,

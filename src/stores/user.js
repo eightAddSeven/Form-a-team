@@ -29,22 +29,29 @@ export const useUserStore = defineStore('user', () => {
   }
   
   // 登录
-  const login = async (username, password) => {
-    try {
-      const response = await authAPI.login({ username, password })
-      
-      setToken(response.data.token)
-      setUserInfo(response.data.user)
-      
-      return { success: true, data: response.data }
-    } catch (error) {
-      console.error('登录失败:', error)
-      return { 
-        success: false, 
-        error: error.response?.data?.message || '登录失败，请检查用户名和密码' 
-      }
+const login = async (username, password) => {
+  try {
+    const response = await authAPI.login({ username, password })
+    const { token, user } = response.data
+
+    // 确保用户信息中包含 _id 字段（后端可能返回 id 或 _id）
+    const userInfo = {
+      ...user,
+      _id: user._id || user.id
+    }
+
+    setToken(token)
+    setUserInfo(userInfo)
+
+    return { success: true, data: response.data }
+  } catch (error) {
+    console.error('登录失败:', error)
+    return { 
+      success: false, 
+      error: error.response?.data?.message || '登录失败，请检查用户名和密码' 
     }
   }
+}
   
   // 注册
   const register = async (userData) => {

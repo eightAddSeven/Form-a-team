@@ -1,211 +1,290 @@
-const express = require('express')
-const User = require('../models/User')
-const Post = require('../models/Post')
-const auth = require('../middleware/auth')
-const router = express.Router()
+const express = require('express');
+const User = require('../models/User');
+const Post = require('../models/Post');
+const auth = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+const router = express.Router();
+
+// 辅助函数：根据 ID 或 username 查找用户
+const findUserByIdOrUsername = async (identifier) => {
+  if (mongoose.Types.ObjectId.isValid(identifier)) {
+    const user = await User.findById(identifier);
+    if (user) return user;
+  }
+  return await User.findOne({
+    $or: [{ username: identifier }, { nickname: identifier }]
+  });
+};
 
 // 获取用户信息
 router.get('/:id', async (req, res) => {
   try {
-    const user = await User.findById(req.params.id)
-      .select('-password')
-      .populate('followers', 'nickname avatar')
-      .populate('following', 'nickname avatar')
-    
-    if (!user) {
-      return res.status(404).json({ message: '用户不存在' })
-    }
-    
-    // 获取用户的帖子数量
-    const postCount = await Post.countDocuments({ author: user._id })
-    
-    // 获取用户获得的点赞总数
-    const posts = await Post.find({ author: user._id })
-    const totalLikes = posts.reduce((sum, post) => sum + post.likes.length, 0)
-    
+    const user = await findUserByIdOrUsername(req.params.id);
+    if (!user) return res.status(404).json({ message: '用户不存在' });
+
+    const postCount = await Post.countDocuments({ author: user._id });
+    const posts = await Post.find({ author: user._id });
+    const totalLikes = posts.reduce((sum, post) => sum + post.likes.length, 0);
+
     res.json({
       ...user.toObject(),
       id: user._id,
       posts: postCount,
       likes: totalLikes
-    })
+    });
   } catch (error) {
-    console.error('获取用户信息失败:', error)
-    res.status(500).json({ message: '获取用户信息失败' })
+    console.error('获取用户信息失败:', error);
+    res.status(500).json({ message: '获取用户信息失败' });
   }
-})
+});
 
 // 更新用户信息
 router.put('/profile', auth, async (req, res) => {
   try {
-    const { nickname, bio, college, major, grade, avatar, cover } = req.body
-    
+    const { nickname, bio, college, major, grade, avatar, cover } = req.body;
     const user = await User.findByIdAndUpdate(
       req.userId,
       { nickname, bio, college, major, grade, avatar, cover },
       { new: true }
-    ).select('-password')
-    
-    res.json(user)
+    ).select('-password');
+    res.json(user);
   } catch (error) {
-    console.error('更新用户信息失败:', error)
-    res.status(500).json({ message: '更新失败' })
+    console.error('更新用户信息失败:', error);
+    res.status(500).json({ message: '更新失败' });
   }
-})
+});
 
-// 关注用户
+// ========== 关注用户（增强版，带详细日志和错误处理） ==========
 router.post('/:id/follow', auth, async (req, res) => {
   try {
-    if (req.params.id === req.userId) {
-      return res.status(400).json({ message: '不能关注自己' })
+    const targetUserId = req.params.id;
+    const currentUserId = req.userId;
+
+    console.log(`\n===== 关注操作开始 =====`);
+    console.log(`当前用户 ID: ${currentUserId}`);
+    console.log(`目标用户 ID: ${targetUserId}`);
+
+    // 校验目标用户 ID 格式
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      console.log('目标用户 ID 格式无效');
+      return res.status(400).json({ message: '无效的用户ID' });
     }
-    
-    const targetUser = await User.findById(req.params.id)
-    const currentUser = await User.findById(req.userId)
-    
-    if (!targetUser || !currentUser) {
-      return res.status(404).json({ message: '用户不存在' })
+
+    // 禁止关注自己
+    if (targetUserId === currentUserId) {
+      console.log('不能关注自己');
+      return res.status(400).json({ message: '不能关注自己' });
     }
-    
-    const isFollowing = currentUser.following.includes(req.params.id)
-    
+
+    // 查找用户
+    const targetUser = await User.findById(targetUserId);
+    const currentUser = await User.findById(currentUserId);
+
+    if (!targetUser) {
+      console.log('目标用户不存在');
+      return res.status(404).json({ message: '目标用户不存在' });
+    }
+    if (!currentUser) {
+      console.log('当前用户不存在');
+      return res.status(404).json({ message: '当前用户不存在' });
+    }
+
+    // 检查是否已关注
+    const isFollowing = currentUser.following.some(
+      id => id.toString() === targetUserId
+    );
+
+    console.log(`操作前 - 当前用户关注列表: ${JSON.stringify(currentUser.following)}`);
+    console.log(`操作前 - 目标用户粉丝列表: ${JSON.stringify(targetUser.followers)}`);
+    console.log(`是否已关注: ${isFollowing}`);
+
     if (isFollowing) {
       // 取消关注
-      currentUser.following = currentUser.following.filter(id => id.toString() !== req.params.id)
-      targetUser.followers = targetUser.followers.filter(id => id.toString() !== req.userId)
+      currentUser.following = currentUser.following.filter(
+        id => id.toString() !== targetUserId
+      );
+      targetUser.followers = targetUser.followers.filter(
+        id => id.toString() !== currentUserId
+      );
     } else {
-      // 关注
-      currentUser.following.push(req.params.id)
-      targetUser.followers.push(req.userId)
+      // 添加关注
+      currentUser.following.push(targetUserId);
+      targetUser.followers.push(currentUserId);
     }
-    
-    await currentUser.save()
-    await targetUser.save()
-    
+
+    console.log(`操作后 - 当前用户关注列表: ${JSON.stringify(currentUser.following)}`);
+    console.log(`操作后 - 目标用户粉丝列表: ${JSON.stringify(targetUser.followers)}`);
+
+    // 保存数据库，使用 try-catch 包裹每个保存操作
+    try {
+      await currentUser.save();
+      console.log('当前用户保存成功');
+    } catch (saveError) {
+      console.error('当前用户保存失败:', saveError);
+      return res.status(500).json({ message: '保存当前用户失败', error: saveError.message });
+    }
+
+    try {
+      await targetUser.save();
+      console.log('目标用户保存成功');
+    } catch (saveError) {
+      console.error('目标用户保存失败:', saveError);
+      return res.status(500).json({ message: '保存目标用户失败', error: saveError.message });
+    }
+
+    console.log(`关注操作完成，最终 isFollowing: ${!isFollowing}`);
+    console.log(`===== 关注操作结束 =====\n`);
+
     res.json({
       isFollowing: !isFollowing,
       followersCount: targetUser.followers.length,
       followingCount: currentUser.following.length
-    })
+    });
   } catch (error) {
-    console.error('关注操作失败:', error)
-    res.status(500).json({ message: '操作失败' })
+    console.error('关注操作未捕获异常:', error);
+    res.status(500).json({ message: '操作失败', error: error.message });
   }
-})
+});
 
-// 获取用户的帖子
+// 调试接口（保留，但路径应为 /debug/me，注意不要与动态路由冲突）
+router.get('/debug/me', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).lean();
+    res.json({
+      _id: user._id,
+      username: user.username,
+      following: user.following,
+      followers: user.followers
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取用户帖子
 router.get('/:id/posts', async (req, res) => {
   try {
-    const { page = 1, pageSize = 10 } = req.query
-    
-    const posts = await Post.find({ 
-      author: req.params.id,
+    const user = await findUserByIdOrUsername(req.params.id);
+    if (!user) return res.status(404).json({ message: '用户不存在' });
+
+    const { page = 1, pageSize = 10 } = req.query;
+    const posts = await Post.find({
+      author: user._id,
       status: 'published'
     })
       .populate('author', 'nickname avatar college')
       .sort({ createdAt: -1 })
       .skip((page - 1) * pageSize)
       .limit(parseInt(pageSize))
-      .lean()
-    
-    const total = await Post.countDocuments({ author: req.params.id })
-    
+      .lean();
+
+    const total = await Post.countDocuments({ author: user._id });
+
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
       id: post._id,
       isLiked: false
-    }))
-    
+    }));
+
     res.json({
       posts: postsWithLikeStatus,
       hasMore: page * pageSize < total,
       total
-    })
+    });
   } catch (error) {
-    console.error('获取用户帖子失败:', error)
-    res.status(500).json({ message: '获取失败' })
+    console.error('获取用户帖子失败:', error);
+    res.status(500).json({ message: '获取失败' });
   }
-})
+});
 
-// 获取用户的收藏
-router.get('/:id/collections', auth, async (req, res) => {
+// 获取用户收藏
+router.get('/:id/collections', async (req, res) => {
   try {
-    // 这里需要 Collection 模型，暂时返回空
-    res.json({ collections: [], hasMore: false })
-  } catch (error) {
-    res.status(500).json({ message: '获取失败' })
-  }
-})
+    const user = await findUserByIdOrUsername(req.params.id);
+    if (!user) return res.status(404).json({ message: '用户不存在' });
 
-// ==========================================
-// 获取用户的关注列表
-// ==========================================
+    await user.populate({
+      path: 'collections',
+      match: { status: 'published' },
+      populate: { path: 'author', select: 'nickname avatar' }
+    });
+
+    const collections = (user.collections || []).map(post => ({
+      ...post.toObject(),
+      id: post._id,
+      type: 'post',
+      typeText: '帖子',
+      collectTime: post.createdAt
+    }));
+
+    res.json({
+      success: true,
+      data: collections,
+      hasMore: false
+    });
+  } catch (error) {
+    console.error('获取收藏列表失败:', error);
+    res.status(500).json({ message: '获取失败' });
+  }
+});
+
+// 获取关注列表
 router.get('/:id/following', async (req, res) => {
   try {
-    const user = await User.findById(req.params.id)
-      .populate('following', 'nickname avatar bio college')
-      .lean()
-    
-    if (!user) {
-      return res.status(404).json({ message: '用户不存在' })
-    }
-    
+    const user = await findUserByIdOrUsername(req.params.id);
+    if (!user) return res.status(404).json({ message: '用户不存在' });
+
+    await user.populate('following', 'nickname avatar bio college');
+
     const following = (user.following || []).map(u => ({
-      ...u,
+      ...u.toObject(),
       id: u._id,
       isFollowing: true
-    }))
-    
-    res.json(following)
-  } catch (error) {
-    console.error('获取关注列表失败:', error)
-    res.status(500).json({ message: '获取失败' })
-  }
-})
+    }));
 
-// ==========================================
-// 获取用户的粉丝列表
-// ==========================================
+    res.json(following);
+  } catch (error) {
+    console.error('获取关注列表失败:', error);
+    res.status(500).json({ message: '获取失败' });
+  }
+});
+
+// 获取粉丝列表
 router.get('/:id/followers', async (req, res) => {
   try {
-    // 获取当前登录用户ID
-    let currentUserId = null
-    const authHeader = req.headers.authorization
+    const user = await findUserByIdOrUsername(req.params.id);
+    if (!user) return res.status(404).json({ message: '用户不存在' });
+
+    let currentUserId = null;
+    const authHeader = req.headers.authorization;
     if (authHeader) {
       try {
-        const token = authHeader.replace('Bearer ', '')
-        const jwt = require('jsonwebtoken')
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key')
-        currentUserId = decoded.userId
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+        currentUserId = decoded.userId;
       } catch (e) {}
     }
-    
-    const user = await User.findById(req.params.id)
-      .populate('followers', 'nickname avatar bio college')
-      .lean()
-    
-    if (!user) {
-      return res.status(404).json({ message: '用户不存在' })
-    }
-    
-    // 获取当前用户的关注列表
-    let currentUserFollowing = []
+
+    await user.populate('followers', 'nickname avatar bio college');
+
+    let currentUserFollowing = [];
     if (currentUserId) {
-      const currentUser = await User.findById(currentUserId)
-      currentUserFollowing = currentUser?.following.map(id => id.toString()) || []
+      const currentUser = await User.findById(currentUserId);
+      currentUserFollowing = currentUser?.following.map(id => id.toString()) || [];
     }
-    
+
     const followers = (user.followers || []).map(u => ({
-      ...u,
+      ...u.toObject(),
       id: u._id,
       isFollowing: currentUserFollowing.includes(u._id.toString())
-    }))
-    
-    res.json(followers)
-  } catch (error) {
-    console.error('获取粉丝列表失败:', error)
-    res.status(500).json({ message: '获取失败' })
-  }
-})
+    }));
 
-module.exports = router
+    res.json(followers);
+  } catch (error) {
+    console.error('获取粉丝列表失败:', error);
+    res.status(500).json({ message: '获取失败' });
+  }
+});
+
+module.exports = router;

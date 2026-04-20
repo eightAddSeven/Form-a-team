@@ -12,7 +12,7 @@
           {{ tab }}
         </span>
       </div>
-      <div class="header-filter">
+     <div class="header-filter">
         <select class="filter-select" v-model="filterType" @change="handleFilterChange">
           <option value="all">全部帖子</option>
           <option value="competition">竞赛经验</option>
@@ -69,7 +69,6 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import PostCard from './PostCard.vue'
 
 const router = useRouter()
@@ -133,20 +132,8 @@ const handlePostClick = (post) => {
 }
 
 const handleLike = (post) => {
-  // 检查是否登录
-  const token = localStorage.getItem('token')
-  if (!token) {
-    ElMessage.warning('请先登录后再点赞')
-    router.push('/login')
-    return
-  }
-  
-  // 切换点赞状态
-  post.isLiked = !post.isLiked
-  post.likes += post.isLiked ? 1 : -1
-  
+  // 只传递事件，不做本地修改和弹窗，由父组件统一处理
   emit('like', post)
-  ElMessage.success(post.isLiked ? '点赞成功' : '取消点赞')
 }
 
 const handleComment = (post) => {
@@ -156,27 +143,10 @@ const handleComment = (post) => {
 
 const handleShare = (post) => {
   emit('share', post)
-  
-  // 复制链接到剪贴板
-  const url = `${window.location.origin}/post/${post.id}`
-  navigator.clipboard?.writeText(url).then(() => {
-    ElMessage.success('链接已复制到剪贴板')
-  }).catch(() => {
-    ElMessage.info(`分享链接: ${url}`)
-  })
 }
 
 const handleCollect = (post) => {
-  const token = localStorage.getItem('token')
-  if (!token) {
-    ElMessage.warning('请先登录后再收藏')
-    router.push('/login')
-    return
-  }
-  
-  post.isCollected = !post.isCollected
   emit('collect', post)
-  ElMessage.success(post.isCollected ? '收藏成功' : '取消收藏')
 }
 
 // 监听筛选变化

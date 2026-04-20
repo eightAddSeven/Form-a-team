@@ -18,7 +18,8 @@ const routes = [
     component: () => import('@/views/Register.vue')
   },
   {
-    path: '/profile',
+    // 修改点1：添加动态参数 :id?（可选）
+    path: '/profile/:id?',
     name: 'Profile',
     component: () => import('@/views/Profile.vue'),
     meta: { requiresAuth: true }
@@ -56,15 +57,15 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
-router.beforeEach((to, from, next) => {
+// 修改点2：修复路由守卫弃用警告
+router.beforeEach((to, from) => {
   const token = localStorage.getItem('token')
   
   if (to.meta.requiresAuth && !token) {
-    next('/login')
-  } else {
-    next()
+    // 直接返回路径，不再调用 next
+    return '/login'
   }
+  // 允许访问，无需返回
 })
 
 export default router
