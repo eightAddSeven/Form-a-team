@@ -44,6 +44,10 @@ const postSchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
+  attachments: {
+    type: Array,
+    default: []
+  },
   status: {
     type: String,
     enum: ['draft', 'published', 'deleted', 'archived'],  // 合并所有状态

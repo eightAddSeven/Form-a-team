@@ -17,9 +17,11 @@ const io = new Server(server, {
 })
 
 // ========== 1. 基础中间件 ==========
+// 中间件
 app.use(cors())
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+// ✅ 增加 limit 限制，允许接收 Base64 编码的图片数据
+app.use(express.json({ limit: '10mb' }))
+app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // 开放 uploads 目录作为静态资源，解决头像不显示问题
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))

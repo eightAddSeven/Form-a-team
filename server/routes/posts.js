@@ -9,22 +9,51 @@ router.get('/', async (req, res) => {
   try {
     const { page = 1, pageSize = 10, category = 'all', tab = 'latest' } = req.query
     
-    // 构建查询条件
+    // 1. 构建基础查询条件
     let query = { status: 'published' }
     if (category !== 'all') {
       query.category = category
     }
 
-    // 构建排序条件
+    // 2. 构建排序条件
     let sortOption = { createdAt: -1 }
+    
+    // 💡 修复1：优化“热门”榜单。如果新帖子的热度 score 都是 0，引入浏览量和时间作为次要排序，确保热门列表有明显区分度
     if (tab === 'hot') {
-      sortOption = { heatScore: -1, createdAt: -1 }
-    } else if (tab === 'latest') {
-      sortOption = { createdAt: -1 }
+      sortOption = { heatScore: -1, views: -1, createdAt: -1 }
     } else if (tab === 'recommend') {
       sortOption = { heatScore: -1, views: -1 }
     }
 
+    // 💡 修复2：处理“关注”列表。拦截请求，过滤作者
+    if (tab === 'follow' || tab === 'following') {
+      const authHeader = req.headers.authorization
+      if (!authHeader) {
+        // 如果没登录，直接返回空列表（前端可以据此显示“请先登录”）
+        return res.json({ posts: [], hasMore: false, total: 0 })
+      }
+      
+      try {
+        // 动态解析 Token 获取当前登录用户 ID
+        const jwt = require('jsonwebtoken')
+        const token = authHeader.replace('Bearer ', '')
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key')
+        
+        const currentUser = await User.findById(decoded.userId)
+        
+        if (currentUser && currentUser.following && currentUser.following.length > 0) {
+          // 核心过滤：告诉数据库“只查这些被关注者的帖子”
+          query.author = { $in: currentUser.following }
+        } else {
+          // 如果用户谁都没关注，直接返回空，避免全站数据泄露过来
+          return res.json({ posts: [], hasMore: false, total: 0 })
+        }
+      } catch (e) {
+        return res.status(401).json({ message: '登录状态无效，请重新登录' })
+      }
+    }
+
+    // 3. 执行分页与查询
     const skip = (parseInt(page) - 1) * parseInt(pageSize)
     const limit = parseInt(pageSize)
 
@@ -37,6 +66,7 @@ router.get('/', async (req, res) => {
       .limit(limit)
       .lean()
 
+    // 4. 组装数据返回给前端
     const responsePosts = posts.map(post => ({
       ...post,
       id: post._id,

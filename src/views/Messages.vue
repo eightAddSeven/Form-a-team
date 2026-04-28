@@ -206,6 +206,12 @@ onMounted(async () => {
     }
     loadConversations() 
   })
+
+  socket.value.on('new_unread_message', () => {
+    // 只要有任何人给我发消息，直接刷新左侧会话列表
+    // 这样新的联系人和最新消息就会瞬间弹出来，并被顶到最上面！
+    loadConversations()
+  })
 })
 
 const sendMessage = () => {

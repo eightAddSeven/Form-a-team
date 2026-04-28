@@ -660,15 +660,54 @@ const removeCollection = async (item) => {
   }
 }
 
-const handleCoverUpdate = (url) => {
-  userInfo.value.cover = url
-  if (isOwnProfile.value) userStore.updateUserInfo({ cover: url })
-  ElMessage.success('封面已更新')
-}
-const handleAvatarUpdate = (url) => {
+// ✅ 修复：不仅本地更新，还要持久化到数据库
+const handleAvatarUpdate = async (url) => {
+  // 1. 本地立刻更新，保证丝滑的 UI 体验
   userInfo.value.avatar = url
   if (isOwnProfile.value) userStore.updateUserInfo({ avatar: url })
-  ElMessage.success('头像已更新')
+
+  // 2. 构造完整数据发给后端，避免其他字段被清空
+  const updateData = {
+    nickname: userInfo.value.nickname,
+    bio: userInfo.value.bio,
+    college: userInfo.value.college,
+    major: userInfo.value.major,
+    grade: userInfo.value.grade,
+    cover: userInfo.value.cover,
+    avatar: url // 塞入最新的头像 Base64
+  }
+
+  try {
+    await userAPI.updateProfile(updateData)
+    ElMessage.success('头像已永久保存！')
+  } catch (error) {
+    console.error('头像保存失败:', error)
+    ElMessage.error('头像保存到云端失败，请稍后重试')
+  }
+}
+
+// ✅ 顺便修复：背景墙（封面）的逻辑也是一样的，加上持久化
+const handleCoverUpdate = async (url) => {
+  userInfo.value.cover = url
+  if (isOwnProfile.value) userStore.updateUserInfo({ cover: url })
+
+  const updateData = {
+    nickname: userInfo.value.nickname,
+    bio: userInfo.value.bio,
+    college: userInfo.value.college,
+    major: userInfo.value.major,
+    grade: userInfo.value.grade,
+    avatar: userInfo.value.avatar,
+    cover: url
+  }
+
+  try {
+    await userAPI.updateProfile(updateData)
+    ElMessage.success('背景墙已永久保存！')
+  } catch (error) {
+    console.error('背景墙保存失败:', error)
+    ElMessage.error('背景墙保存失败')
+  }
 }
 const shareProfile = () => {
   const url = window.location.href

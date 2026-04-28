@@ -1,27 +1,22 @@
 <template>
   <div class="post-detail-container">
-    <!-- 加载中 -->
     <div v-if="loading" class="loading-state">
       <div class="loading-spinner"></div>
       <p>加载中...</p>
     </div>
     
-    <!-- 帖子不存在 -->
     <div v-else-if="!post" class="error-state">
       <span class="error-icon">😕</span>
       <p>帖子不存在或已被删除</p>
       <button @click="goBack" class="back-btn">返回首页</button>
     </div>
     
-    <!-- 帖子内容 -->
     <template v-else>
       <div class="post-detail-content">
-        <!-- 返回按钮 -->
         <div class="back-nav">
           <button @click="goBack" class="back-btn">← 返回</button>
         </div>
         
-        <!-- 帖子主体 -->
         <div class="post-main">
           <h1 class="post-title">{{ post.title || '无标题' }}</h1>
           
@@ -46,6 +41,23 @@
           
           <div class="post-content" v-html="renderContent(post.content)"></div>
           
+          <div class="post-attachments" v-if="post.attachments && post.attachments.length > 0">
+            <h4 class="attachments-title">📎 附件下载 ({{ post.attachments.length }})</h4>
+            <div class="attachments-list">
+              <a 
+                v-for="(file, index) in post.attachments" 
+                :key="index" 
+                :href="file.url || file" 
+                target="_blank" 
+                class="attachment-item"
+                download
+              >
+                <span class="attachment-icon">📄</span>
+                <span class="attachment-name">{{ file.name || getFileName(file.url || file) }}</span>
+              </a>
+            </div>
+          </div>
+          
           <div class="post-tags" v-if="post.tags && post.tags.length">
             <span 
               class="tag" 
@@ -58,7 +70,6 @@
           </div>
           
           <div class="post-actions">
-            <!-- 点赞按钮：添加 @click.stop 阻止冒泡 -->
             <button class="action-btn" @click.stop="handleLike" :class="{ liked: post.isLiked }">
               <span>{{ post.isLiked ? '❤️' : '🤍' }}</span>
               {{ post.likes?.length || 0 }} 点赞
@@ -78,11 +89,9 @@
           </div>
         </div>
         
-        <!-- 评论区 -->
         <div class="comments-section" id="comments">
           <h3>评论 ({{ post.commentCount || post.comments?.length || 0 }})</h3>
           
-          <!-- 评论输入框 -->
           <div class="comment-input-wrapper">
             <textarea 
               v-model="newComment" 
@@ -96,7 +105,6 @@
             </button>
           </div>
           
-          <!-- 评论列表 -->
           <div class="comments-list">
             <div v-if="!post.comments || post.comments.length === 0" class="empty-comments">
               <p>暂无评论，快来抢沙发吧~</p>
@@ -115,7 +123,6 @@
                 </div>
                 <p class="comment-text">{{ comment.content }}</p>
 
-                <!-- 删除按钮，仅当有权限时显示 -->
                 <button 
                   v-if="canDeleteComment(comment)" 
                   class="delete-comment-btn" 
@@ -130,7 +137,6 @@
         </div>
       </div>
       
-      <!-- 侧边栏 -->
       <div class="post-sidebar">
         <div class="author-card" @click="goToProfile">
           <img 
@@ -143,7 +149,6 @@
           <p class="author-college" v-if="post.author?.college">
             {{ post.author.college }} · {{ post.author.major }}
           </p>
-          <!-- 关注按钮：显示当前关注状态，点击触发真实请求 -->
           <button 
             class="follow-btn" 
             @click.stop="toggleFollow"
@@ -183,7 +188,7 @@ const loading = ref(true)
 const post = computed(() => postStore.currentPost)
 const newComment = ref('')
 const commentInput = ref(null)
-const isFollowing = ref(false)  // 当前用户是否已关注帖子作者
+const isFollowing = ref(false)
 
 const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
 
@@ -202,6 +207,13 @@ const formatTime = (time) => {
 const renderContent = (content) => {
   if (!content) return ''
   return content.replace(/\n/g, '<br>')
+}
+
+// ✅ 新增：提取文件名的辅助函数，防止有些文件没有 name 属性
+const getFileName = (url) => {
+  if (!url || typeof url !== 'string') return '未知文件';
+  const parts = url.split('/');
+  return parts[parts.length - 1] || '附件';
 }
 
 const goBack = () => {
@@ -268,7 +280,6 @@ const handleCollect = async () => {
   }
 }
 
-// 关注/取消关注作者
 const toggleFollow = async () => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
@@ -289,7 +300,6 @@ const toggleFollow = async () => {
   }
 }
 
-// 检查是否已关注作者
 const checkFollowStatus = async () => {
   if (!userStore.isLoggedIn) return
   const targetId = post.value?.author?._id || post.value?.author?.id
@@ -312,15 +322,17 @@ const fetchPostDetail = async () => {
       ElMessage.error('帖子不存在')
       postStore.currentPost = null
     } else {
-      // ✅ 确保 comments 为数组
       const postData = postStore.currentPost
       if (!Array.isArray(postData.comments)) {
         postData.comments = []
       }
+      // 兼容附件为空的情况
+      if (!Array.isArray(postData.attachments)) {
+        postData.attachments = []
+      }
     }
 
     console.log('帖子详情:', post.value)
-    // 检查关注状态
     await checkFollowStatus()
   } catch (error) {
     console.error('获取帖子详情失败:', error)
@@ -330,20 +342,17 @@ const fetchPostDetail = async () => {
   }
 }
 
-// 判断当前用户是否可以删除某条评论
 const canDeleteComment = (comment) => {
   if (!userStore.isLoggedIn) return false
   const currentUserId = userStore.userInfo?._id || userStore.userInfo?.id
   if (!currentUserId) return false
 
-  // 评论作者或帖子作者可以删除
   const commentAuthorId = comment.author?._id || comment.author?.id
   const postAuthorId = post.value?.author?._id || post.value?.author?.id
 
   return currentUserId === commentAuthorId || currentUserId === postAuthorId
 }
 
-// 提交评论
 const submitComment = async () => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
@@ -373,7 +382,6 @@ const submitComment = async () => {
   }
 }
 
-// 删除评论
 const handleDeleteComment = async (commentId) => {
   deleting.value = true
   try {
@@ -761,5 +769,57 @@ onMounted(() => {
   .post-detail-container {
     grid-template-columns: 1fr;
   }
+}
+
+/* ✅ 新增：附件模块的样式 */
+.post-attachments {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #cbd5e1;
+}
+
+.attachments-title {
+  font-size: 14px;
+  color: #475569;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.attachments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.attachment-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  text-decoration: none;
+  color: #004e9e;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  width: fit-content;
+}
+
+.attachment-item:hover {
+  border-color: #004e9e;
+  background: #f0f7ff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 78, 158, 0.05);
+}
+
+.attachment-icon {
+  font-size: 18px;
+}
+
+.attachment-name {
+  word-break: break-all;
 }
 </style>
