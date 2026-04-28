@@ -1,52 +1,75 @@
 <template>
-  <div class="notification-bell" @click="handleClick">
-    <span class="bell-icon">🔔</span>
-    <span class="badge" v-if="unreadCount > 0">
-      {{ unreadCount > 99 ? '99+' : unreadCount }}
-    </span>
+  <div class="notification-bell" @click="goToMessages">
+    <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
+      <el-icon :size="24" class="bell-icon"><Bell /></el-icon>
+    </el-badge>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { Bell } from '@element-plus/icons-vue'
+import { io } from 'socket.io-client'
+import API from '@/api'
+import { useUserStore } from '@/stores/user'
 
-const unreadCount = ref(5)
+const router = useRouter()
+const userStore = useUserStore()
+const userInfo = computed(() => userStore.userInfo)
 
-const handleClick = () => {
-  console.log('打开通知')
-  // 可以添加路由跳转
+const unreadCount = ref(0)
+const socket = ref(null)
+
+const goToMessages = () => {
+  router.push('/messages')
 }
+
+// 获取后端真实未读数量
+const fetchUnreadCount = async () => {
+  if (!userInfo.value) return
+  try {
+    const res = await API.get('/messages/unread-count')
+    unreadCount.value = res.data.count
+  } catch (error) {
+    console.error('获取未读消息数失败', error)
+  }
+}
+
+onMounted(() => {
+  if (!userInfo.value) return
+  
+  fetchUnreadCount()
+
+  // 建立独立连接监听全局红点通知
+  socket.value = io('http://localhost:3000')
+  socket.value.on('connect', () => {
+    socket.value.emit('join_global', userInfo.value._id)
+  })
+
+  // 只要别人给我发了消息，未读数就自动加 1
+  socket.value.on('new_unread_message', () => {
+    unreadCount.value += 1
+  })
+})
+
+onUnmounted(() => {
+  if (socket.value) socket.value.disconnect()
+})
 </script>
 
 <style scoped>
 .notification-bell {
-  position: relative;
+  display: flex;
+  align-items: center;
   cursor: pointer;
-  padding: 8px;
-  border-radius: 50%;
-  transition: background 0.2s;
+  padding: 0 8px;
 }
-
-.notification-bell:hover {
-  background-color: #f0f3f8;
-}
-
 .bell-icon {
-  font-size: 20px;
+  color: #606266;
+  transition: color 0.3s;
 }
-
-.badge {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  background-color: #f23d4d;
-  color: white;
-  font-size: 11px;
-  font-weight: bold;
-  padding: 2px 6px;
-  border-radius: 12px;
-  min-width: 18px;
-  text-align: center;
-  border: 1.5px solid white;
+.notification-bell:hover .bell-icon {
+  color: #409eff;
 }
 </style>

@@ -694,7 +694,16 @@ const saveProfile = async () => {
 const createNewPost = () => router.push('/')
 const viewPost = (id) => router.push(`/post/${id}`)
 const editPost = () => ElMessage.info('功能开发中')
-const sendMessage = () => router.push(`/messages?user=${userId.value}`)
+const sendMessage = () => {
+  router.push({
+    path: '/messages',
+    query: {
+      targetId: userInfo.value.id || userInfo.value._id,
+      targetName: userInfo.value.nickname || userInfo.value.username,
+      targetAvatar: userInfo.value.avatar
+    }
+  })
+}
 const changeEmail = () => ElMessage.info('功能开发中')
 const bindPhone = () => ElMessage.info('功能开发中')
 const changePassword = () => ElMessage.info('功能开发中')
