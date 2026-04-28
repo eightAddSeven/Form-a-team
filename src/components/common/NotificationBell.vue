@@ -7,7 +7,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { io } from 'socket.io-client'
@@ -27,7 +27,6 @@ const goToMessages = () => {
 
 // 获取后端真实未读数量
 const fetchUnreadCount = async () => {
-  if (!userInfo.value) return
   try {
     const res = await API.get('/messages/unread-count')
     unreadCount.value = res.data.count
@@ -36,22 +35,38 @@ const fetchUnreadCount = async () => {
   }
 }
 
-onMounted(() => {
-  if (!userInfo.value) return
-  
-  fetchUnreadCount()
+// ✅ 核心修复：使用 watch 代替 onMounted，解决刷新页面时状态未加载的问题
+watch(() => userInfo.value, (newVal) => {
+  if (newVal) {
+    // 1. 兼容获取真实的 userId，防止出现 undefined
+    const userId = newVal._id || newVal.id
+    if (!userId) return
 
-  // 建立独立连接监听全局红点通知
-  socket.value = io('http://localhost:3000')
-  socket.value.on('connect', () => {
-    socket.value.emit('join_global', userInfo.value._id)
-  })
+    // 2. 先去后端拉取一次当前的总未读数
+    fetchUnreadCount()
 
-  // 只要别人给我发了消息，未读数就自动加 1
-  socket.value.on('new_unread_message', () => {
-    unreadCount.value += 1
-  })
-})
+    // 3. 建立全局独立连接，监听小红点推送（加锁防止重复连接）
+    if (!socket.value) {
+      socket.value = io('http://localhost:3000')
+      
+      socket.value.on('connect', () => {
+        socket.value.emit('join_global', userId)
+      })
+
+      // 只要别人给我发了消息，不管我在哪个页面，未读数都自动 +1
+      socket.value.on('new_unread_message', () => {
+        unreadCount.value += 1
+      })
+    }
+  } else {
+    // 退出登录时的安全清理逻辑
+    if (socket.value) {
+      socket.value.disconnect()
+      socket.value = null
+    }
+    unreadCount.value = 0
+  }
+}, { immediate: true }) // immediate: true 保证组件一加载就立刻执行一次检查
 
 onUnmounted(() => {
   if (socket.value) socket.value.disconnect()
