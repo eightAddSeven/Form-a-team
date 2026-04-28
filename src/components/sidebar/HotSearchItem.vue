@@ -6,7 +6,9 @@
     
     <div class="hot-content">
       <span class="hot-title">{{ item.title }}</span>
-      <span class="hot-heat">{{ formatHeat(item.heat) }}</span>
+      <span class="hot-heat">
+        <span class="heat-icon">🔥</span> {{ formatHeat(item.heat) }}
+      </span>
     </div>
     
     <span class="hot-tag" v-if="item.tag" :class="getTagClass(item.tag)">
@@ -92,6 +94,13 @@ const getTagClass = (tag) => {
 .hot-heat {
   font-size: 12px;
   color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.heat-icon {
+  font-size: 12px;
 }
 
 .hot-tag {

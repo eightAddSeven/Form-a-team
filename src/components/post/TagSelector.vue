@@ -130,7 +130,6 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue'])
 
 const selectorRef = ref(null)
 const showDropdown = ref(false)
@@ -140,7 +139,7 @@ const competitionFilter = ref('全部')
 const collegeFilter = ref('')
 const selectedTags = ref([...props.modelValue])
 const dropdownStyle = ref({})
-
+const emit = defineEmits(['update:modelValue', 'change'])  // 新增 change 事件
 const tabs = [
   { label: '🏆 学术竞赛', value: 'competition' },
   { label: '🔬 科研立项', value: 'research' }
@@ -240,12 +239,14 @@ const toggleTag = (tag) => {
     selectedTags.value.push(tag)
   }
   emit('update:modelValue', selectedTags.value)
+  emit('change', selectedTags.value)  // ✅ 新增：触发 change 事件
 }
 
 // 移除标签
 const removeTag = (tag) => {
   selectedTags.value = selectedTags.value.filter(t => t.name !== tag.name)
   emit('update:modelValue', selectedTags.value)
+  emit('change', selectedTags.value)  // ✅ 新增
 }
 
 // 创建自定义标签

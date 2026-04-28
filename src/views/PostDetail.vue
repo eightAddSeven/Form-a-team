@@ -58,7 +58,8 @@
           </div>
           
           <div class="post-actions">
-            <button class="action-btn" @click="handleLike" :class="{ liked: post.isLiked }">
+            <!-- 点赞按钮：添加 @click.stop 阻止冒泡 -->
+            <button class="action-btn" @click.stop="handleLike" :class="{ liked: post.isLiked }">
               <span>{{ post.isLiked ? '❤️' : '🤍' }}</span>
               {{ post.likes?.length || 0 }} 点赞
             </button>
@@ -70,7 +71,7 @@
               <span>📤</span>
               分享
             </button>
-            <button class="action-btn" @click="handleCollect" :class="{ collected: post.isCollected }">
+            <button class="action-btn" @click.stop="handleCollect" :class="{ collected: post.isCollected }">
               <span>{{ post.isCollected ? '⭐' : '☆' }}</span>
               收藏
             </button>
@@ -142,8 +143,13 @@
           <p class="author-college" v-if="post.author?.college">
             {{ post.author.college }} · {{ post.author.major }}
           </p>
-          <button class="follow-btn" @click.stop="toggleFollow">
-            + 关注
+          <!-- 关注按钮：显示当前关注状态，点击触发真实请求 -->
+          <button 
+            class="follow-btn" 
+            @click.stop="toggleFollow"
+            :class="{ following: isFollowing }"
+          >
+            {{ isFollowing ? '✓ 已关注' : '+ 关注' }}
           </button>
         </div>
         
@@ -164,7 +170,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { usePostStore } from '@/stores/post'
-import { postAPI } from '@/api'
+import { postAPI, userAPI } from '@/api'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
@@ -177,6 +183,7 @@ const loading = ref(true)
 const post = computed(() => postStore.currentPost)
 const newComment = ref('')
 const commentInput = ref(null)
+const isFollowing = ref(false)  // 当前用户是否已关注帖子作者
 
 const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
 
@@ -245,22 +252,55 @@ const handleShare = () => {
   })
 }
 
-const handleCollect = () => {
+const handleCollect = async () => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
     router.push('/login')
     return
   }
-  ElMessage.info('收藏功能开发中')
+  const postId = route.params.id
+  const result = await postStore.collectPost(postId)
+  if (result.success) {
+    post.value.isCollected = result.isCollected
+    ElMessage.success(result.isCollected ? '收藏成功' : '已取消收藏')
+  } else {
+    ElMessage.error(result.error || '操作失败')
+  }
 }
 
-const toggleFollow = () => {
+// 关注/取消关注作者
+const toggleFollow = async () => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
     router.push('/login')
     return
   }
-  ElMessage.success('关注成功')
+  const targetId = post.value?.author?._id || post.value?.author?.id
+  if (!targetId) {
+    ElMessage.warning('无法获取用户信息')
+    return
+  }
+  try {
+    const res = await userAPI.followUser(targetId)
+    isFollowing.value = res.data.isFollowing
+    ElMessage.success(isFollowing.value ? '关注成功' : '已取消关注')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '操作失败')
+  }
+}
+
+// 检查是否已关注作者
+const checkFollowStatus = async () => {
+  if (!userStore.isLoggedIn) return
+  const targetId = post.value?.author?._id || post.value?.author?.id
+  if (!targetId) return
+  
+  try {
+    const currentUserRes = await userAPI.getUser(userStore.userInfo._id)
+    isFollowing.value = currentUserRes.data.following?.includes(targetId) || false
+  } catch (error) {
+    console.error('检查关注状态失败:', error)
+  }
 }
 
 const fetchPostDetail = async () => {
@@ -278,6 +318,10 @@ const fetchPostDetail = async () => {
         postData.comments = []
       }
     }
+
+    console.log('帖子详情:', post.value)
+    // 检查关注状态
+    await checkFollowStatus()
   } catch (error) {
     console.error('获取帖子详情失败:', error)
     postStore.currentPost = null

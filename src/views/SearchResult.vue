@@ -30,6 +30,7 @@
           v-else
           :posts="posts"
           :loading="loading"
+          :loading-more="loadingMore"
           :has-more="hasMore"
           @loadMore="loadMore"
         />
@@ -110,7 +111,7 @@ const currentPage = ref(1)
 const sortBy = ref('latest')
 const timeRange = ref('all')
 const relatedTags = ref([])
-
+const loadingMore = ref(false)  // 新增
 // 搜索参数
 const searchQuery = computed(() => route.query.q || '')
 const searchTag = computed(() => route.query.tag || '')
@@ -134,7 +135,6 @@ const pageTitle = computed(() => {
 
 // 获取搜索结果
 const fetchSearchResults = async (isLoadMore = false) => {
-  // ✅ 检查是否有搜索条件
   if (!searchQuery.value && !searchTag.value) {
     posts.value = []
     hasMore.value = false
@@ -142,7 +142,9 @@ const fetchSearchResults = async (isLoadMore = false) => {
     return
   }
   
-  if (!isLoadMore) {
+  if (isLoadMore) {
+    loadingMore.value = true
+  } else {
     loading.value = true
     currentPage.value = 1
     posts.value = []
@@ -160,11 +162,7 @@ const fetchSearchResults = async (isLoadMore = false) => {
       params.q = searchQuery.value
     }
     
-    console.log('搜索参数:', params)
-    
     const res = await searchAPI.search(params)
-    
-    console.log('搜索响应:', res.data)
     
     if (isLoadMore) {
       posts.value.push(...(res.data.posts || []))
@@ -175,22 +173,17 @@ const fetchSearchResults = async (isLoadMore = false) => {
     hasMore.value = res.data.hasMore || false
     total.value = res.data.total || 0
     relatedTags.value = res.data.relatedTags || []
-    
-    if (posts.value.length === 0) {
-      ElMessage.info('没有找到相关结果')
-    }
   } catch (error) {
     console.error('搜索失败:', error)
     ElMessage.error('搜索失败，请稍后重试')
-    posts.value = []
   } finally {
     loading.value = false
+    loadingMore.value = false
   }
 }
 
-// 加载更多
 const loadMore = () => {
-  if (!loading.value && hasMore.value) {
+  if (!loadingMore.value && hasMore.value) {
     currentPage.value++
     fetchSearchResults(true)
   }

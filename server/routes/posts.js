@@ -1,54 +1,56 @@
 const express = require('express')
+const router = express.Router()
 const Post = require('../models/Post')
 const User = require('../models/User')
 const auth = require('../middleware/auth')
-const router = express.Router()
 
-// ==========================================
-// 1. 获取所有帖子列表 (首页用)
-// ==========================================
+// ========== 列表接口 ==========
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, category, tab } = req.query
+    const { page = 1, pageSize = 10, category = 'all', tab = 'latest' } = req.query
     
+    // 构建查询条件
     let query = { status: 'published' }
-    if (category && category !== 'all') {
+    if (category !== 'all') {
       query.category = category
     }
-    
-    let sort = { createdAt: -1 }
+
+    // 构建排序条件
+    let sortOption = { createdAt: -1 }
     if (tab === 'hot') {
-      sort = { likes: -1, createdAt: -1 }
+      sortOption = { heatScore: -1, createdAt: -1 }
+    } else if (tab === 'latest') {
+      sortOption = { createdAt: -1 }
+    } else if (tab === 'recommend') {
+      sortOption = { heatScore: -1, views: -1 }
     }
-    
+
     const skip = (parseInt(page) - 1) * parseInt(pageSize)
     const limit = parseInt(pageSize)
+
+    const total = await Post.countDocuments(query)
     
     const posts = await Post.find(query)
-      .populate('author', 'nickname avatar college bio')
-      .sort(sort)
+      .populate('author', 'nickname avatar')
+      .sort(sortOption)
       .skip(skip)
       .limit(limit)
       .lean()
-    
-    const total = await Post.countDocuments(query)
-    
-    // ✅ 关键修复：将 likes 和 comments 转换为数字
-    // 列表接口中，也改为返回 commentCount 和 comments（可只返回数量以节省流量）
+
     const responsePosts = posts.map(post => ({
       ...post,
       id: post._id,
       createTime: post.createdAt,
       likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
-      comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0), // 列表页保持数字（数量）
-    // 不需要完整的 comments 数组，减少传输数据
+      comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
+      tags: Array.isArray(post.tags) ? post.tags : [],
       isLiked: false,
       isCollected: false
     }))
     
     res.json({
       posts: responsePosts,
-      hasMore: skip + responsePosts.length < total,
+      hasMore: skip + posts.length < total,
       total
     })
   } catch (error) {
@@ -85,7 +87,7 @@ router.get('/user/:userId', async (req, res) => {
       createTime: post.createdAt,
       likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
       comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
-      tags: Array.isArray(post.tags) ? post.tags : [],  // ✅ 确保是数组
+      tags: Array.isArray(post.tags) ? post.tags : [],
       isLiked: false,
       isCollected: false
     }))
@@ -101,9 +103,7 @@ router.get('/user/:userId', async (req, res) => {
   }
 })
 
-// ==========================================
-// 3. 创建帖子
-// ==========================================
+// ========== 发布帖子 ==========
 router.post('/', auth, async (req, res) => {
   try {
     const { title, content, category, tags, attachments } = req.body
@@ -138,7 +138,7 @@ router.post('/', auth, async (req, res) => {
     }
     
     console.log('处理后的 tags:', processedTags)
-    
+
     const post = new Post({
       title: title || '',
       content,
@@ -178,12 +178,12 @@ router.post('/', auth, async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const post = await Post.findById(req.params.id)
-      .populate('author', 'nickname avatar college bio')
+      .populate('author', 'nickname avatar college major bio')
       .populate('comments.author', 'nickname avatar')
       .lean()
 
     if (!post) {
-      return res.status(404).json({ message: '帖子不存在' })
+      return res.status(404).json({ error: '帖子不存在' })
     }
 
     await Post.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
@@ -209,37 +209,38 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-// ==========================================
-// 5. 点赞帖子
-// ==========================================
+// ========== 点赞 ==========
 router.post('/:id/like', auth, async (req, res) => {
   try {
+    const userId = req.userId
     const post = await Post.findById(req.params.id)
     if (!post) {
-      return res.status(404).json({ message: '帖子不存在' })
+      return res.status(404).json({ error: '帖子不存在' })
     }
-    
-    const likeIndex = post.likes.findIndex(id => id.toString() === req.userId)
+
+    const likeIndex = post.likes.findIndex(id => id.toString() === userId.toString())
     let isLiked = false
-    
-    if (likeIndex === -1) {
-      post.likes.push(req.userId)
-      isLiked = true
-    } else {
+
+    if (likeIndex > -1) {
       post.likes.splice(likeIndex, 1)
       isLiked = false
+    } else {
+      post.likes.push(userId)
+      isLiked = true
     }
-    
-    await post.save()
-    
-    // ✅ 返回数字
+
+    await post.updateHeatScore()
+
     res.json({
-      likes: post.likes.length,
-      isLiked
+      success: true,
+      isLiked,
+      likes: post.likes,
+      likeCount: post.likes.length,
+      heatScore: post.heatScore
     })
-  } catch (error) {
-    console.error('点赞失败:', error)
-    res.status(500).json({ message: '点赞失败' })
+  } catch (e) {
+    console.error('点赞失败:', e)
+    res.status(500).json({ error: e.message })
   }
 })
 
@@ -248,10 +249,10 @@ router.post('/:id/like', auth, async (req, res) => {
 // ==========================================
 router.post('/:id/comments', auth, async (req, res) => {
   try {
-    const { content } = req.body;
-    
+    const { content } = req.body
+    const userId = req.userId
     if (!content || content.trim() === '') {
-      return res.status(400).json({ message: '评论内容不能为空' });
+      return res.status(400).json({ message: '评论内容不能为空' })
     }
     
     // 查找帖子
@@ -265,10 +266,11 @@ router.post('/:id/comments', auth, async (req, res) => {
       author: req.userId,
       content: content.trim(),
       createdAt: new Date()
-    };
+    }
     
     post.comments.push(newComment);
-    
+    await post.updateHeatScore()
+    await post.populate('comments.author', 'nickname avatar')
     // 保存帖子
     const savedPost = await post.save();
     console.log('✅ 评论已保存，当前评论数:', savedPost.comments.length);
@@ -290,9 +292,91 @@ router.post('/:id/comments', auth, async (req, res) => {
   }
 });
 
-// ==========================================
-// 6.5 删除评论
-// ==========================================
+
+//========== 收藏/取消收藏 ==========
+router.post('/:id/collect', auth, async (req, res) => {
+  try {
+    const postId = req.params.id
+    const userId = req.userId
+
+    const post = await Post.findById(postId)
+    if (!post) {
+      return res.status(404).json({ error: '帖子不存在' })
+    }
+
+    const user = await User.findById(userId)
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' })
+    }
+
+    const collectIndex = user.collections.findIndex(
+      id => id.toString() === postId.toString()
+    )
+
+    let isCollected = false
+    if (collectIndex > -1) {
+      user.collections.splice(collectIndex, 1)
+      isCollected = false
+    } else {
+      user.collections.push(postId)
+      isCollected = true
+    }
+
+    await user.save()
+
+    res.json({
+      success: true,
+      isCollected,
+      collectionsCount: user.collections.length
+    })
+  } catch (e) {
+    console.error('收藏操作失败:', e)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ========== 热搜榜单 ==========
+router.get('/hot-rank/list', async (req, res) => {
+  try {
+    const { limit = 8 } = req.query
+
+    const hotPosts = await Post.find({ status: 'published' })
+      .select('_id title heatScore views likes comments createdAt author')
+      .populate('author', 'nickname avatar')
+      .sort({ heatScore: -1, createdAt: -1 })
+      .limit(parseInt(limit))
+      .lean()
+
+    const rankedPosts = hotPosts.map((post, index) => {
+      const calculation = Post.calculateHeatScore(post)
+      return {
+        rank: index + 1,
+        postId: post._id,
+        title: post.title || '无标题',
+        author: post.author,
+        heat: calculation.heatScore,
+        heatMetrics: calculation.heatMetrics,
+        stats: {
+          views: post.views || 0,
+          likes: post.likes?.length || 0,
+          comments: post.comments?.length || 0
+        },
+        createdAt: post.createdAt,
+        url: `/post/${post._id}`
+      }
+    })
+
+    res.json({
+      success: true,
+      data: rankedPosts,
+      updateTime: new Date().toISOString()
+    })
+  } catch (err) {
+    console.error('获取热搜榜单失败:', err)
+    res.status(500).json({ success: false, data: [], error: err.message })
+  }
+})
+//删除评论
 router.delete('/:id/comments/:commentId', auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
@@ -327,10 +411,7 @@ router.delete('/:id/comments/:commentId', auth, async (req, res) => {
     res.status(500).json({ message: '删除评论失败', error: error.message });
   }
 });
-
-// ==========================================
-// 7. 删除帖子
-// ==========================================
+// ========== 删除帖子 ==========
 router.delete('/:id', auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id)

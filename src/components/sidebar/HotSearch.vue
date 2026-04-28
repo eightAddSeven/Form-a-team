@@ -5,7 +5,6 @@
         <span class="icon">🔥</span>
         热搜榜
       </h3>
-      <span class="update-time">{{ updateTime }}</span>
     </div>
     
     <div class="hot-search-list">

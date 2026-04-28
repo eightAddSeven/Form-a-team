@@ -37,6 +37,12 @@
     </div>
     
     <div class="post-actions">
+      <!-- 浏览量显示（新增） -->
+      <span class="views-stat" title="浏览量">
+        <span class="stat-icon">👁️</span>
+        <span class="stat-number">{{ post.views || 0 }}</span>
+      </span>
+
       <button 
         class="action-btn" 
         @click.stop="handleLike"
@@ -238,7 +244,26 @@ const handleCollect = () => {
 .post-actions {
   margin-left: 52px;
   display: flex;
+  align-items: center;
   gap: 20px;
+}
+
+/* 新增浏览量样式 */
+.views-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #64748b;
+  font-size: 14px;
+  user-select: none;
+}
+
+.stat-icon {
+  font-size: 16px;
+}
+
+.stat-number {
+  font-weight: 500;
 }
 
 .action-btn {
