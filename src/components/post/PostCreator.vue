@@ -102,6 +102,19 @@ const props = defineProps({
   initialTitle: {
     type: String,
     default: ''
+  },
+  // ✅ 新增：接收标签、分类和附件的旧数据
+  initialCategory: {
+    type: String,
+    default: ''
+  },
+  initialTags: {
+    type: Array,
+    default: () => []
+  },
+  initialAttachments: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -110,11 +123,12 @@ const emit = defineEmits(['submit', 'input', 'attach', 'tag', 'cancel'])
 const isLoggedIn = computed(() => userStore.isLoggedIn)
 const userAvatar = computed(() => userStore.userInfo?.avatar || '')
 
+// ✅ 确保状态初始化时继承旧数据
 const title = ref(props.initialTitle)
 const content = ref(props.initialContent)
-const category = ref('')
-const attachments = ref([])
-const tags = ref([])
+const category = ref(props.initialCategory)
+const attachments = ref(props.initialAttachments)
+const tags = ref(props.initialTags)
 const showPreview = ref(false)
 const textareaRef = ref(null)
 

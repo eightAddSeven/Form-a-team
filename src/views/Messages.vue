@@ -113,11 +113,42 @@ const getOpponent = (msg) => {
   }
 }
 
-const formatTime = (timeStr) => {
-  if (!timeStr) return ''
-  const date = new Date(timeStr)
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
+// ✅ 修复：人性化的聊天时间分级格式化
+const formatTime = (time) => {
+  if (!time) return '';
+  const date = new Date(time);
+  const now = new Date();
+  
+  // 提取时分 (HH:mm)
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const timeStr = `${hours}:${minutes}`;
+  
+  // 1. 判断是否是今天 (仅返回 09:00)
+  if (date.toDateString() === now.toDateString()) {
+    return timeStr;
+  }
+  
+  // 2. 判断是否是昨天 (返回 昨天 09:00)
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `昨天 ${timeStr}`;
+  }
+  
+  // 提取月和日
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  
+  // 3. 判断是否是今年 (返回 05-01 09:00)
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${month}-${day} ${timeStr}`;
+  }
+  
+  // 4. 跨年历史消息 (返回 2025-12-31 09:00)
+  const year = date.getFullYear();
+  return `${year}-${month}-${day} ${timeStr}`;
+};
 
 const scrollToBottom = async () => {
   await nextTick()

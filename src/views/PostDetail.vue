@@ -177,6 +177,7 @@ import { useUserStore } from '@/stores/user'
 import { usePostStore } from '@/stores/post'
 import { postAPI, userAPI } from '@/api'
 import { ElMessage } from 'element-plus'
+import { marked } from 'marked'
 
 const route = useRoute()
 const router = useRouter()
@@ -206,7 +207,14 @@ const formatTime = (time) => {
 
 const renderContent = (content) => {
   if (!content) return ''
-  return content.replace(/\n/g, '<br>')
+  try {
+    // 调用 marked.parse()，它会自动把 **文字** 变成 <strong>文字</strong>
+    // 把 # 标题 变成 <h1>标题</h1>
+    return marked.parse(content)
+  } catch (error) {
+    console.error('Markdown 解析失败:', error)
+    return content // 如果解析出错，兜底返回原文本
+  }
 }
 
 // ✅ 新增：提取文件名的辅助函数，防止有些文件没有 name 属性

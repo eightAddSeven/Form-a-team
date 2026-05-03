@@ -396,6 +396,26 @@
       </div>
     </div>
   </div>
+  
+  <div class="modal-overlay" v-if="showEditPostModal" @click="closeEditPostModal">
+      <div class="edit-post-modal" @click.stop>
+        <div class="modal-header">
+          <h3>修改招募信息</h3>
+          <button class="close-btn" @click="closeEditPostModal">✕</button>
+        </div>
+        <div class="modal-body post-creator-modal-body">
+          <PostCreator 
+            :is-editing="true"
+            :initial-title="currentEditPost.title"
+            :initial-content="currentEditPost.content"
+            :initial-category="currentEditPost.category"
+            :initial-tags="currentEditPost.tags"
+            :initial-attachments="currentEditPost.attachments"
+            @submit="handleUpdatePost"
+          />
+        </div>
+      </div>
+  </div>
 </template>
 
 <script setup>
@@ -406,6 +426,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AvatarUpload from '@/components/profile/AvatarUpload.vue'
 import CoverUpload from '@/components/profile/CoverUpload.vue'
 import { userAPI, postAPI } from '@/api'
+import PostCreator from '@/components/post/PostCreator.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -732,7 +753,34 @@ const saveProfile = async () => {
 }
 const createNewPost = () => router.push('/')
 const viewPost = (id) => router.push(`/post/${id}`)
-const editPost = () => ElMessage.info('功能开发中')
+// ✅ 新增：编辑帖子相关逻辑
+const showEditPostModal = ref(false)
+const currentEditPost = ref(null)
+
+const editPost = (post) => {
+  // 深拷贝一份当前帖子的数据，防止在未点击保存时污染了原列表数据
+  currentEditPost.value = JSON.parse(JSON.stringify(post))
+  showEditPostModal.value = true
+}
+
+const closeEditPostModal = () => {
+  showEditPostModal.value = false
+  currentEditPost.value = null
+}
+
+const handleUpdatePost = async (formData) => {
+  try {
+    // 提交数据给新的更新接口
+    await postAPI.updatePost(currentEditPost.value.id, formData)
+    ElMessage.success('帖子更新成功！')
+    closeEditPostModal()
+    // 重新拉取列表，刷新视图
+    await loadUserPosts() 
+  } catch (error) {
+    console.error('更新失败:', error)
+    ElMessage.error(error.response?.data?.message || '帖子更新失败')
+  }
+}
 const sendMessage = () => {
   router.push({
     path: '/messages',
@@ -1632,5 +1680,25 @@ input:checked + .slider:before {
   background: #004e9e;
   border: none;
   color: white;
+}
+
+/* ✅ 新增：编辑帖子弹窗样式 */
+.edit-post-modal {
+  background: white;
+  border-radius: 16px;
+  width: 800px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.post-creator-modal-body {
+  padding: 0; /* 让编辑器贴着弹窗边缘显得更宽敞 */
+}
+
+/* 消除组件自身的阴影，防止弹窗里出现双重框 */
+.edit-post-modal :deep(.post-creator) {
+  box-shadow: none;
+  border: none;
 }
 </style>

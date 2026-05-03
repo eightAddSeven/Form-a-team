@@ -11,9 +11,6 @@
       <div class="menu-item" @click="goToMessages">
         <span>💬</span> 我的消息
       </div>
-      <div class="menu-item" @click="goToSettings">
-        <span>⚙️</span> 设置
-      </div>
       <div class="divider"></div>
       <div class="menu-item" @click="handleLogout">
         <span>🚪</span> 退出登录
@@ -52,11 +49,6 @@ const goToProfile = () => {
 const goToMessages = () => {
   showDropdown.value = false
   router.push('/messages')
-}
-
-const goToSettings = () => {
-  showDropdown.value = false
-  ElMessage.info('设置功能开发中...')
 }
 
 const handleLogout = () => {

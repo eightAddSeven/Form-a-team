@@ -441,6 +441,59 @@ router.delete('/:id/comments/:commentId', auth, async (req, res) => {
     res.status(500).json({ message: '删除评论失败', error: error.message });
   }
 });
+// ========== 更新帖子 (编辑功能) ==========
+router.put('/:id', auth, async (req, res) => {
+  try {
+    const { title, content, category, tags, attachments } = req.body;
+    
+    if (!content || content.trim() === '') {
+      return res.status(400).json({ message: '内容不能为空' });
+    }
+
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ message: '帖子不存在' });
+    }
+
+    // 权限安全校验：只能修改作者是自己的帖子
+    if (post.author.toString() !== req.userId) {
+      return res.status(403).json({ message: '无权修改此帖子' });
+    }
+
+    // 处理 tags（复用发布时的清洗逻辑，确保是字符串数组）
+    let processedTags = [];
+    if (Array.isArray(tags)) {
+      processedTags = tags.map(tag => {
+        if (typeof tag === 'string') return tag.trim();
+        if (tag && typeof tag === 'object') return (tag.displayName || tag.name || '').trim();
+        return '';
+      }).filter(tag => tag !== '');
+    }
+
+    // 覆盖旧数据
+    post.title = title || '';
+    post.content = content;
+    post.category = category || 'other';
+    post.tags = processedTags;
+    if (attachments) {
+      post.attachments = attachments;
+    }
+
+    await post.save();
+    
+    res.json({
+      message: '更新成功',
+      post: {
+        ...post.toObject(),
+        id: post._id,
+        createTime: post.createdAt,
+      }
+    });
+  } catch (error) {
+    console.error('更新帖子失败:', error);
+    res.status(500).json({ message: '更新帖子失败', error: error.message });
+  }
+});
 // ========== 删除帖子 ==========
 router.delete('/:id', auth, async (req, res) => {
   try {
