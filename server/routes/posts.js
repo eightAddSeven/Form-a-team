@@ -2,50 +2,43 @@ const express = require('express')
 const router = express.Router()
 const Post = require('../models/Post')
 const User = require('../models/User')
-const auth = require('../middleware/auth')
+const { auth } = require('../middleware/auth')
+const jwt = require('jsonwebtoken')
+const keywordFilter = require('../middleware/keywordFilter') // 新增敏感词检测中间件
 
 // ========== 列表接口 ==========
 router.get('/', async (req, res) => {
   try {
     const { page = 1, pageSize = 10, category = 'all', tab = 'latest' } = req.query
     
-    // 1. 构建基础查询条件
     let query = { status: 'published' }
     if (category !== 'all') {
       query.category = category
     }
 
-    // 2. 构建排序条件
     let sortOption = { createdAt: -1 }
     
-    // 💡 修复1：优化“热门”榜单。如果新帖子的热度 score 都是 0，引入浏览量和时间作为次要排序，确保热门列表有明显区分度
     if (tab === 'hot') {
       sortOption = { heatScore: -1, views: -1, createdAt: -1 }
     } else if (tab === 'recommend') {
       sortOption = { heatScore: -1, views: -1 }
     }
 
-    // 💡 修复2：处理“关注”列表。拦截请求，过滤作者
     if (tab === 'follow' || tab === 'following') {
       const authHeader = req.headers.authorization
       if (!authHeader) {
-        // 如果没登录，直接返回空列表（前端可以据此显示“请先登录”）
         return res.json({ posts: [], hasMore: false, total: 0 })
       }
       
       try {
-        // 动态解析 Token 获取当前登录用户 ID
-        const jwt = require('jsonwebtoken')
         const token = authHeader.replace('Bearer ', '')
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key')
         
         const currentUser = await User.findById(decoded.userId)
         
         if (currentUser && currentUser.following && currentUser.following.length > 0) {
-          // 核心过滤：告诉数据库“只查这些被关注者的帖子”
           query.author = { $in: currentUser.following }
         } else {
-          // 如果用户谁都没关注，直接返回空，避免全站数据泄露过来
           return res.json({ posts: [], hasMore: false, total: 0 })
         }
       } catch (e) {
@@ -53,20 +46,18 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // 3. 执行分页与查询
     const skip = (parseInt(page) - 1) * parseInt(pageSize)
     const limit = parseInt(pageSize)
 
     const total = await Post.countDocuments(query)
     
     const posts = await Post.find(query)
-      .populate('author', 'nickname avatar')
+      .populate('author', 'nickname avatar role')
       .sort(sortOption)
       .skip(skip)
       .limit(limit)
       .lean()
 
-    // 4. 组装数据返回给前端
     const responsePosts = posts.map(post => ({
       ...post,
       id: post._id,
@@ -89,9 +80,7 @@ router.get('/', async (req, res) => {
   }
 })
 
-// ==========================================
-// 2. 获取指定用户的帖子
-// ==========================================
+// 获取指定用户的帖子
 router.get('/user/:userId', async (req, res) => {
   try {
     const { page = 1, pageSize = 10 } = req.query
@@ -103,7 +92,7 @@ router.get('/user/:userId', async (req, res) => {
       author: req.params.userId,
       status: 'published' 
     })
-      .populate('author', 'nickname avatar college bio')
+      .populate('author', 'nickname avatar college bio role')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -133,13 +122,17 @@ router.get('/user/:userId', async (req, res) => {
   }
 })
 
-// ========== 发布帖子 ==========
-router.post('/', auth, async (req, res) => {
+// 发布帖子（添加禁言检查 + 敏感词过滤）
+router.post('/', auth, keywordFilter, async (req, res) => {
   try {
+    const currentUser = await User.findById(req.userId);
+    if (currentUser && currentUser.bannedUntil && currentUser.bannedUntil > new Date()) {
+      return res.status(403).json({ 
+        message: `您已被禁言至 ${currentUser.bannedUntil.toLocaleString()}，暂时无法发布帖子` 
+      });
+    }
+
     const { title, content, category, tags, attachments } = req.body
-    
-    console.log('=== 创建帖子请求 ===')
-    console.log('原始 tags:', JSON.stringify(tags))
     
     if (!content || content.trim() === '') {
       return res.status(400).json({ message: '内容不能为空' })
@@ -150,30 +143,22 @@ router.post('/', auth, async (req, res) => {
       return res.status(404).json({ message: '用户不存在' })
     }
     
-    // ✅ 关键修复：处理 tags，确保存储的是字符串数组
     let processedTags = []
     if (Array.isArray(tags)) {
       processedTags = tags.map(tag => {
-        // 如果是字符串，直接返回
-        if (typeof tag === 'string') {
-          return tag.trim()
-        }
-        // 如果是对象，提取 displayName 或 name
+        if (typeof tag === 'string') return tag.trim()
         if (tag && typeof tag === 'object') {
-          const tagName = tag.displayName || tag.name || ''
-          return tagName.trim()
+          return (tag.displayName || tag.name || '').trim()
         }
         return ''
-      }).filter(tag => tag !== '') // 过滤空字符串
+      }).filter(tag => tag !== '')
     }
-    
-    console.log('处理后的 tags:', processedTags)
 
     const post = new Post({
       title: title || '',
       content,
       category: category || 'other',
-      tags: processedTags,  // ✅ 存储纯字符串数组
+      tags: processedTags,
       attachments: attachments || [],
       author: req.userId,
       status: 'published',
@@ -182,11 +167,8 @@ router.post('/', auth, async (req, res) => {
     })
     
     await post.save()
-    console.log('帖子保存成功，ID:', post._id, 'tags:', post.tags)
+    await post.populate('author', 'nickname avatar college role')
     
-    await post.populate('author', 'nickname avatar college')
-    
-    // 返回时也保持格式一致
     res.status(201).json({
       ...post.toObject(),
       id: post._id,
@@ -202,14 +184,12 @@ router.post('/', auth, async (req, res) => {
   }
 })
 
-// ==========================================
-// 4. 获取单个帖子详情（修复版）
-// ==========================================
+// 获取单个帖子详情
 router.get('/:id', async (req, res) => {
   try {
     const post = await Post.findById(req.params.id)
-      .populate('author', 'nickname avatar college major bio')
-      .populate('comments.author', 'nickname avatar')
+      .populate('author', 'nickname avatar college major bio role')
+      .populate('comments.author', 'nickname avatar role')
       .lean()
 
     if (!post) {
@@ -218,7 +198,6 @@ router.get('/:id', async (req, res) => {
 
     await Post.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
 
-    // ✅ 保留 comments 为数组，新增 commentCount 字段
     const commentsArray = Array.isArray(post.comments) ? post.comments : []
     const likesArray = Array.isArray(post.likes) ? post.likes : []
 
@@ -226,8 +205,8 @@ router.get('/:id', async (req, res) => {
       ...post,
       id: post._id,
       createTime: post.createdAt,
-      comments: commentsArray,                      // 保留数组
-      commentCount: commentsArray.length,           // 新增数量字段
+      comments: commentsArray,
+      commentCount: commentsArray.length,
       likes: likesArray,
       likeCount: likesArray.length,
       isLiked: false,
@@ -239,7 +218,7 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-// ========== 点赞 ==========
+// 点赞
 router.post('/:id/like', auth, async (req, res) => {
   try {
     const userId = req.userId
@@ -274,24 +253,27 @@ router.post('/:id/like', auth, async (req, res) => {
   }
 })
 
-// ==========================================
-// 6. 添加评论（健壮版）
-// ==========================================
-router.post('/:id/comments', auth, async (req, res) => {
+// 添加评论（添加禁言检查 + 敏感词过滤）
+router.post('/:id/comments', auth, keywordFilter, async (req, res) => {
   try {
+    const currentUser = await User.findById(req.userId);
+    if (currentUser && currentUser.bannedUntil && currentUser.bannedUntil > new Date()) {
+      return res.status(403).json({ 
+        message: `您已被禁言至 ${currentUser.bannedUntil.toLocaleString()}，暂时无法发表评论` 
+      });
+    }
+
     const { content } = req.body
     const userId = req.userId
     if (!content || content.trim() === '') {
       return res.status(400).json({ message: '评论内容不能为空' })
     }
     
-    // 查找帖子
     const post = await Post.findById(req.params.id);
     if (!post) {
       return res.status(404).json({ message: '帖子不存在' });
     }
     
-    // 添加评论子文档
     const newComment = {
       author: req.userId,
       content: content.trim(),
@@ -300,30 +282,25 @@ router.post('/:id/comments', auth, async (req, res) => {
     
     post.comments.push(newComment);
     await post.updateHeatScore()
-    await post.populate('comments.author', 'nickname avatar')
-    // 保存帖子
+    await post.populate('comments.author', 'nickname avatar role')
     const savedPost = await post.save();
-    console.log('✅ 评论已保存，当前评论数:', savedPost.comments.length);
     
-    // 重新查询并 populate 作者信息（只 populate 最新评论）
     const populatedPost = await Post.findById(post._id)
       .populate({
         path: 'comments.author',
-        select: 'nickname avatar'
+        select: 'nickname avatar role'
       });
     
     const addedComment = populatedPost.comments[populatedPost.comments.length - 1];
     
-    // 返回新评论
     res.status(201).json(addedComment);
   } catch (error) {
-    console.error('❌ 评论保存失败:', error);
+    console.error('评论保存失败:', error);
     res.status(500).json({ message: '评论失败', error: error.message });
   }
 });
 
-
-//========== 收藏/取消收藏 ==========
+// 收藏/取消收藏
 router.post('/:id/collect', auth, async (req, res) => {
   try {
     const postId = req.params.id
@@ -365,14 +342,14 @@ router.post('/:id/collect', auth, async (req, res) => {
   }
 })
 
-// ========== 热搜榜单 ==========
+// 热搜榜单
 router.get('/hot-rank/list', async (req, res) => {
   try {
     const { limit = 8 } = req.query
 
     const hotPosts = await Post.find({ status: 'published' })
       .select('_id title heatScore views likes comments createdAt author')
-      .populate('author', 'nickname avatar')
+      .populate('author', 'nickname avatar role')
       .sort({ heatScore: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .lean()
@@ -406,7 +383,8 @@ router.get('/hot-rank/list', async (req, res) => {
     res.status(500).json({ success: false, data: [], error: err.message })
   }
 })
-//删除评论
+
+// 删除评论
 router.delete('/:id/comments/:commentId', auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
@@ -414,13 +392,11 @@ router.delete('/:id/comments/:commentId', auth, async (req, res) => {
       return res.status(404).json({ message: '帖子不存在' });
     }
 
-    // 找到对应的评论子文档
     const comment = post.comments.id(req.params.commentId);
     if (!comment) {
       return res.status(404).json({ message: '评论不存在' });
     }
 
-    // 权限检查：只有评论作者或帖子作者可以删除
     const isCommentAuthor = comment.author.toString() === req.userId;
     const isPostAuthor = post.author.toString() === req.userId;
 
@@ -428,7 +404,6 @@ router.delete('/:id/comments/:commentId', auth, async (req, res) => {
       return res.status(403).json({ message: '没有删除此评论的权限' });
     }
 
-    // 删除评论
     comment.deleteOne();
     await post.save();
 
@@ -441,6 +416,7 @@ router.delete('/:id/comments/:commentId', auth, async (req, res) => {
     res.status(500).json({ message: '删除评论失败', error: error.message });
   }
 });
+
 // ========== 更新帖子 (编辑功能) ==========
 router.put('/:id', auth, async (req, res) => {
   try {
@@ -494,7 +470,8 @@ router.put('/:id', auth, async (req, res) => {
     res.status(500).json({ message: '更新帖子失败', error: error.message });
   }
 });
-// ========== 删除帖子 ==========
+
+// ========== 删除帖子（修改权限逻辑：作者或管理员） ==========
 router.delete('/:id', auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id)
@@ -502,7 +479,12 @@ router.delete('/:id', auth, async (req, res) => {
       return res.status(404).json({ message: '帖子不存在' })
     }
     
-    if (post.author.toString() !== req.userId) {
+    const user = await User.findById(req.userId)
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' })
+    }
+    
+    if (post.author.toString() !== req.userId && user.role !== 'admin') {
       return res.status(403).json({ message: '无权删除此帖子' })
     }
     

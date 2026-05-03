@@ -87,7 +87,10 @@ router.post('/email-login', async (req, res) => {
         id: user._id,
         username: user.username,
         nickname: user.nickname,
-        avatar: user.avatar
+        avatar: user.avatar,
+        college: user.college, // ✅ 融合队友代码
+        major: user.major,     // ✅ 融合队友代码
+        role: user.role        // ✅ 融合队友代码
       }
     });
   } catch (error) {
@@ -141,7 +144,8 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' }
     )
     
-    res.status(201).json({ message: '注册成功', token, user: { id: user._id, username: user.username, nickname: user.nickname, avatar: user.avatar } })
+    // ✅ 融合队友代码: 返回 role
+    res.status(201).json({ message: '注册成功', token, user: { id: user._id, username: user.username, nickname: user.nickname, avatar: user.avatar, role: user.role } })
   } catch (error) {
     console.error('注册错误:', error)
     res.status(500).json({ message: '注册失败', error: error.message })
@@ -182,7 +186,8 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     )
     
-    res.json({ message: '登录成功', token, user: { id: user._id, username: user.username, nickname: user.nickname, avatar: user.avatar, college: user.college, major: user.major } })
+    // ✅ 融合队友代码: 返回 role
+    res.json({ message: '登录成功', token, user: { id: user._id, username: user.username, nickname: user.nickname, avatar: user.avatar, college: user.college, major: user.major, role: user.role } })
   } catch (error) {
     console.error('登录错误:', error)
     res.status(500).json({ message: '登录失败', error: error.message })
