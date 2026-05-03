@@ -28,7 +28,10 @@
                 class="author-avatar" 
               />
               <div class="author-details">
-                <span class="author-name">{{ post.author?.nickname || '匿名用户' }}</span>
+                <span class="author-name">
+  {{ post.author?.nickname || '匿名用户' }}
+  <span v-if="post.author?.role === 'admin'" class="admin-badge-small" title="管理员">👑</span>
+</span>
                 <span class="post-time">{{ formatTime(post.createdAt) }}</span>
               </div>
             </div>
@@ -144,7 +147,10 @@
             alt="avatar" 
             class="author-card-avatar" 
           />
-          <h4>{{ post.author?.nickname || '匿名用户' }}</h4>
+          <h4>
+  {{ post.author?.nickname || '匿名用户' }}
+  <span v-if="post.author?.role === 'admin'" class="admin-badge-small" title="管理员">👑</span>
+</h4>
           <p class="author-bio">{{ post.author?.bio || '这个人很懒，什么都没写...' }}</p>
           <p class="author-college" v-if="post.author?.college">
             {{ post.author.college }} · {{ post.author.major }}
@@ -404,6 +410,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.admin-badge-small {
+  font-size: 14px;
+  margin-left: 4px;
+  filter: drop-shadow(0 0 3px gold);
+}
+
 .post-detail-container {
   max-width: 1200px;
   margin: 0 auto;

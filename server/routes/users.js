@@ -1,7 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
 const Post = require('../models/Post');
-const auth = require('../middleware/auth');
+const { auth, adminAuth } = require('../middleware/auth'); // 修改引入方式
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const router = express.Router();
@@ -16,6 +16,84 @@ const findUserByIdOrUsername = async (identifier) => {
     $or: [{ username: identifier }, { nickname: identifier }]
   });
 };
+
+// ========== 管理员接口（必须放在 /:id 之前） ==========
+
+// 获取所有用户（管理员专属）
+router.get('/', auth, adminAuth, async (req, res) => {
+  try {
+    const users = await User.find()
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json(users);
+  } catch (error) {
+    console.error('获取用户列表失败:', error);
+    res.status(500).json({ message: '获取用户列表失败' });
+  }
+});
+
+// 禁言用户（管理员专属）
+router.put('/:id/ban', auth, adminAuth, async (req, res) => {
+  try {
+    const { days } = req.body;
+    if (!days || isNaN(days)) {
+      return res.status(400).json({ message: '请提供有效的禁言天数' });
+    }
+    const bannedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { bannedUntil },
+      { new: true }
+    ).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+    res.json({
+      message: `已禁言至 ${bannedUntil.toLocaleString()}`,
+      bannedUntil: user.bannedUntil
+    });
+  } catch (error) {
+    console.error('禁言失败:', error);
+    res.status(500).json({ message: '禁言失败' });
+  }
+});
+
+// 解除禁言（管理员专属）
+router.put('/:id/unban', auth, adminAuth, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { bannedUntil: null },
+      { new: true }
+    ).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+    res.json({ message: '已解除禁言', user });
+  } catch (error) {
+    console.error('解除禁言失败:', error);
+    res.status(500).json({ message: '解除禁言失败' });
+  }
+});
+
+// 删除用户（管理员专属，同时删除该用户所有帖子）
+router.delete('/:id', auth, adminAuth, async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+    // 删除该用户的所有帖子
+    await Post.deleteMany({ author: req.params.id });
+    res.json({ message: '用户及关联帖子已删除' });
+  } catch (error) {
+    console.error('删除用户失败:', error);
+    res.status(500).json({ message: '删除用户失败' });
+  }
+});
+
+// ========== 普通用户接口 ==========
 
 // 获取用户信息
 router.get('/:id', async (req, res) => {
@@ -55,7 +133,7 @@ router.put('/profile', auth, async (req, res) => {
   }
 });
 
-// ========== 关注用户（增强版，带详细日志和错误处理） ==========
+// ========== 关注用户 ==========
 router.post('/:id/follow', auth, async (req, res) => {
   try {
     const targetUserId = req.params.id;
@@ -65,50 +143,29 @@ router.post('/:id/follow', auth, async (req, res) => {
     console.log(`当前用户 ID: ${currentUserId}`);
     console.log(`目标用户 ID: ${targetUserId}`);
 
-    // 校验目标用户 ID 格式
     if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
-      console.log('目标用户 ID 格式无效');
       return res.status(400).json({ message: '无效的用户ID' });
     }
-
-    // 禁止关注自己
     if (targetUserId === currentUserId) {
-      console.log('不能关注自己');
       return res.status(400).json({ message: '不能关注自己' });
     }
 
-    // 查找用户
     const targetUser = await User.findById(targetUserId);
     const currentUser = await User.findById(currentUserId);
-
-    if (!targetUser) {
-      console.log('目标用户不存在');
-      return res.status(404).json({ message: '目标用户不存在' });
-    }
-    if (!currentUser) {
-      console.log('当前用户不存在');
-      return res.status(404).json({ message: '当前用户不存在' });
+    if (!targetUser || !currentUser) {
+      return res.status(404).json({ message: '用户不存在' });
     }
 
-    // 检查是否已关注
-    const isFollowing = currentUser.following.some(
-      id => id.toString() === targetUserId
-    );
+    const isFollowing = currentUser.following.some(id => id.toString() === targetUserId);
 
     console.log(`操作前 - 当前用户关注列表: ${JSON.stringify(currentUser.following)}`);
     console.log(`操作前 - 目标用户粉丝列表: ${JSON.stringify(targetUser.followers)}`);
     console.log(`是否已关注: ${isFollowing}`);
 
     if (isFollowing) {
-      // 取消关注
-      currentUser.following = currentUser.following.filter(
-        id => id.toString() !== targetUserId
-      );
-      targetUser.followers = targetUser.followers.filter(
-        id => id.toString() !== currentUserId
-      );
+      currentUser.following = currentUser.following.filter(id => id.toString() !== targetUserId);
+      targetUser.followers = targetUser.followers.filter(id => id.toString() !== currentUserId);
     } else {
-      // 添加关注
       currentUser.following.push(targetUserId);
       targetUser.followers.push(currentUserId);
     }
@@ -116,7 +173,6 @@ router.post('/:id/follow', auth, async (req, res) => {
     console.log(`操作后 - 当前用户关注列表: ${JSON.stringify(currentUser.following)}`);
     console.log(`操作后 - 目标用户粉丝列表: ${JSON.stringify(targetUser.followers)}`);
 
-    // 保存数据库，使用 try-catch 包裹每个保存操作
     try {
       await currentUser.save();
       console.log('当前用户保存成功');
@@ -147,7 +203,7 @@ router.post('/:id/follow', auth, async (req, res) => {
   }
 });
 
-// 调试接口（保留，但路径应为 /debug/me，注意不要与动态路由冲突）
+// 调试接口
 router.get('/debug/me', auth, async (req, res) => {
   try {
     const user = await User.findById(req.userId).lean();

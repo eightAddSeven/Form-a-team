@@ -18,7 +18,6 @@ const routes = [
     component: () => import('@/views/Register.vue')
   },
   {
-    // 修改点1：添加动态参数 :id?（可选）
     path: '/profile/:id?',
     name: 'Profile',
     component: () => import('@/views/Profile.vue'),
@@ -49,6 +48,13 @@ const routes = [
     path: '/search',
     name: 'Search',
     component: () => import('@/views/SearchResult.vue')
+  },
+  // 新增管理员路由
+  {
+    path: '/admin',
+    name: 'AdminDashboard',
+    component: () => import('@/views/AdminDashboard.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true }
   }
 ]
 
@@ -57,15 +63,25 @@ const router = createRouter({
   routes
 })
 
-// 修改点2：修复路由守卫弃用警告
+// 路由守卫
 router.beforeEach((to, from) => {
   const token = localStorage.getItem('token')
-  
+
+  // 检查是否需要登录
   if (to.meta.requiresAuth && !token) {
-    // 直接返回路径，不再调用 next
     return '/login'
   }
-  // 允许访问，无需返回
+
+  // 检查是否需要管理员权限
+  if (to.meta.requiresAdmin) {
+    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
+    if (userInfo.role !== 'admin') {
+      return '/'
+    }
+  }
+
+  // 允许通过
+  return true
 })
 
 export default router

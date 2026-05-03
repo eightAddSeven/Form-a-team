@@ -69,4 +69,16 @@ export const tagAPI = {
   getTag: (name) => API.get(`/tags/${name}`)
 }
 
+// 管理员 API（含敏感词管理）
+export const adminAPI = {
+  getUsers: () => API.get('/users'),
+  banUser: (id, days) => API.put(`/users/${id}/ban`, { days }),
+  unbanUser: (id) => API.put(`/users/${id}/unban`),
+  deleteUser: (id) => API.delete(`/users/${id}`),
+  // 敏感词管理
+  getKeywords: () => API.get('/admin/keywords'),
+  addKeyword: (word) => API.post('/admin/keywords', { word }),
+  deleteKeyword: (id) => API.delete(`/admin/keywords/${id}`)
+};
+
 export default API

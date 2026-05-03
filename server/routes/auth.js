@@ -20,7 +20,7 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: '用户名已存在' })
     }
     
-    // 创建新用户 - 注意：不使用 email 的唯一索引
+    // 创建新用户
     const user = new User({
       username,
       password,
@@ -45,7 +45,8 @@ router.post('/register', async (req, res) => {
         id: user._id,
         username: user.username,
         nickname: user.nickname,
-        avatar: user.avatar
+        avatar: user.avatar,
+        role: user.role         // 新增：返回角色
       }
     })
   } catch (error) {
@@ -54,7 +55,7 @@ router.post('/register', async (req, res) => {
   }
 })
 
-// 登录 - 修复版
+// 登录
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body
@@ -98,7 +99,8 @@ router.post('/login', async (req, res) => {
         nickname: user.nickname,
         avatar: user.avatar,
         college: user.college,
-        major: user.major
+        major: user.major,
+        role: user.role         // 新增：返回角色
       }
     })
   } catch (error) {

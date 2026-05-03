@@ -109,6 +109,14 @@
         <NotificationBell @click="$router.push('/messages')" />
         <PublishButton @click="handlePublish" />
         
+        <!-- 管理员入口与可爱标识 -->
+        <template v-if="userStore.isLoggedIn && userStore.isAdmin">
+          <router-link to="/admin" class="admin-link">
+            🛠️ 管理后台
+          </router-link>
+          <span class="admin-crown" title="管理员">👑</span>
+        </template>
+
         <!-- 根据登录状态显示不同内容 -->
         <template v-if="userStore.isLoggedIn">
           <UserDropdown />
@@ -218,7 +226,6 @@ const handleSearchInput = () => {
 
 // 获取搜索建议
 const fetchSearchSuggestions = (keyword) => {
-  // 模拟搜索建议数据
   const mockSuggestions = [
     {
       id: 1,
@@ -259,13 +266,9 @@ const fetchSearchSuggestions = (keyword) => {
 const handleSearch = () => {
   if (!searchKeyword.value.trim()) return
   
-  // 保存搜索历史
   saveSearchHistory(searchKeyword.value)
-  
-  // 隐藏建议
   showSuggestions.value = false
   
-  // 跳转到搜索结果页
   router.push({
     path: '/search',
     query: { q: searchKeyword.value }
@@ -281,7 +284,6 @@ const selectHistoryItem = (item) => {
 // 选择建议项
 const selectSuggestion = (suggestion) => {
   if (suggestion.type === 'tag') {
-    // 如果是标签，跳转到标签搜索
     const tagName = suggestion.title.replace(/#/g, '')
     router.push({
       path: '/search',
@@ -603,6 +605,34 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
+}
+
+/* 管理员链接样式 */
+.admin-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: #004e9e;
+  color: white;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.admin-link:hover {
+  background: #0066cc;
+}
+
+/* 管理员小皇冠 */
+.admin-crown {
+  font-size: 20px;
+  margin-left: -4px;
+  filter: drop-shadow(0 0 4px gold);
+  cursor: default;
 }
 
 .login-btn,

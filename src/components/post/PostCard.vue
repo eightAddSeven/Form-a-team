@@ -10,8 +10,9 @@
       <div class="post-info">
         <div class="author-info">
           <span class="author-name" @click.stop="goToProfile">
-            {{ post.author?.nickname || '匿名用户' }}
-          </span>
+  {{ post.author?.nickname || '匿名用户' }}
+  <span v-if="post.author?.role === 'admin'" class="admin-badge-small" title="管理员">👑</span>
+</span>
           <span class="post-time">{{ formatTime(post.createdAt) }}</span>
         </div>
         <h4 class="post-title">{{ post.title || '无标题' }}</h4>
@@ -37,7 +38,7 @@
     </div>
     
     <div class="post-actions">
-      <!-- 浏览量显示（新增） -->
+      <!-- 浏览量显示 -->
       <span class="views-stat" title="浏览量">
         <span class="stat-icon">👁️</span>
         <span class="stat-number">{{ post.views || 0 }}</span>
@@ -67,13 +68,24 @@
         <span>{{ post.isCollected ? '⭐' : '☆' }}</span>
         收藏
       </button>
+      <!-- 删除按钮：作者或管理员可见 -->
+      <button 
+        v-if="canDelete"
+        class="action-btn delete-btn" 
+        @click.stop="handleDelete"
+      >
+        🗑️ 删除
+      </button>
     </div>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { useUserStore } from '@/stores/user'
+import { usePostStore } from '@/stores/post'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const props = defineProps({
   post: {
@@ -85,8 +97,19 @@ const props = defineProps({
 const emit = defineEmits(['click', 'like', 'comment', 'share', 'collect'])
 
 const router = useRouter()
+const userStore = useUserStore()
+const postStore = usePostStore()
 
 const defaultAvatar = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'20\' fill=\'%23e2e8f0\'/%3E%3Ccircle cx=\'20\' cy=\'15\' r=\'7\' fill=\'%2394a3b8\'/%3E%3Cpath d=\'M8 32 Q20 24, 32 32\' fill=\'%2394a3b8\'/%3E%3C/svg%3E'
+
+// 当前登录用户的 ID
+const currentUserId = computed(() => userStore.userInfo?._id || userStore.userInfo?.id)
+
+// 是否允许删除：作者本人 或 管理员
+const canDelete = computed(() => {
+  const authorId = props.post.author?._id || props.post.author?.id
+  return authorId === currentUserId.value || userStore.isAdmin
+})
 
 // 格式化时间
 const formatTime = (time) => {
@@ -140,9 +163,40 @@ const handleShare = () => {
 const handleCollect = () => {
   emit('collect', props.post)
 }
+
+// 删除帖子
+const handleDelete = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要删除这篇帖子吗？此操作不可恢复。',
+      '删除帖子',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    const postId = props.post.id || props.post._id
+    await postStore.deletePost(postId)
+    ElMessage.success('帖子已删除')
+    // 通知父组件刷新列表（如果有需要，可以通过 emit 一个事件）
+    // emit('delete', props.post)  // 可选，如果父组件需要额外处理
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      console.error('删除帖子失败:', error)
+      ElMessage.error('删除失败')
+    }
+  }
+}
 </script>
 
 <style scoped>
+.admin-badge-small {
+  font-size: 14px;
+  margin-left: 4px;
+  filter: drop-shadow(0 0 3px gold);
+}
+
 .post-card {
   padding: 20px;
   background: white;
@@ -248,7 +302,6 @@ const handleCollect = () => {
   gap: 20px;
 }
 
-/* 新增浏览量样式 */
 .views-stat {
   display: flex;
   align-items: center;
@@ -287,5 +340,14 @@ const handleCollect = () => {
 
 .action-btn.active {
   color: #ef4444;
+}
+
+/* 删除按钮特殊样式 */
+.delete-btn {
+  color: #ef4444;
+}
+.delete-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
 }
 </style>

@@ -69,6 +69,7 @@ import { io } from 'socket.io-client'
 import { useUserStore } from '@/stores/user'
 import API from '@/api'
 import UserAvatar from '@/components/common/UserAvatar.vue'
+import { ElMessage } from 'element-plus'  // 新增，用于显示禁言等错误提示
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -88,23 +89,18 @@ const generateRoomId = (id1, id2) => {
   return [id1, id2].sort().join('_')
 }
 
-// ✅ 核心修复：更健壮的“判断对方身份”逻辑
 const getOpponent = (msg) => {
   if (!msg || !userInfo.value) return {}
-  
-  // 强制转为字符串，并同时兼容 id 和 _id
   const myId = String(userInfo.value._id || userInfo.value.id)
   const senderId = String(msg.senderId)
   
   if (senderId === myId) {
-    // 如果消息是我发的，对方就是 receiver
     return { 
       id: msg.receiverId, 
       name: msg.receiverName || '未知用户', 
       avatar: msg.receiverAvatar 
     }
   } else {
-    // 如果消息不是我发的，对方就是 sender
     return { 
       id: msg.senderId, 
       name: msg.senderName || '未知用户', 
@@ -208,8 +204,6 @@ onMounted(async () => {
   })
 
   socket.value.on('new_unread_message', () => {
-    // 只要有任何人给我发消息，直接刷新左侧会话列表
-    // 这样新的联系人和最新消息就会瞬间弹出来，并被顶到最上面！
     loadConversations()
   })
 })
@@ -217,9 +211,13 @@ onMounted(async () => {
 const sendMessage = () => {
   if (!inputText.value.trim() || !currentRoomId.value || !currentOpponent.value) return
 
+  // 生成临时ID，用于后续移除
+  const tempId = 'temp_' + Date.now() + Math.random()
+  const myId = userInfo.value._id || userInfo.value.id
+
   const messageData = {
     roomId: currentRoomId.value,
-    senderId: userInfo.value._id || userInfo.value.id,
+    senderId: myId,
     senderName: userInfo.value.nickname || userInfo.value.username || '未知',
     senderAvatar: userInfo.value.avatar,
     receiverId: currentOpponent.value.id,
@@ -227,35 +225,46 @@ const sendMessage = () => {
     receiverAvatar: currentOpponent.value.avatar,
     text: inputText.value,
     isRead: false,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    _tempId: tempId   // 携带临时ID，方便后端返回时匹配？
   }
 
-  socket.value.emit('send_message', messageData)
-  
-  messages.value.push({ ...messageData, createdAt: new Date() })
+  // 乐观更新：临时添加到列表
+  const tempMsg = { ...messageData, createdAt: new Date() }
+  messages.value.push(tempMsg)
   scrollToBottom()
-  
   inputText.value = ''
-  loadConversations()
+
+  // 发送消息，使用回调处理结果
+  socket.value.emit('send_message', messageData, (response) => {
+    if (response && response.error) {
+      // 发送失败，移除临时消息
+      messages.value = messages.value.filter(m => m._tempId !== tempId)
+      ElMessage.error(response.error)
+    } else {
+      // 发送成功，移除临时标记（可选）
+      const msg = messages.value.find(m => m._tempId === tempId)
+      if (msg) {
+        delete msg._tempId
+        delete msg.pending
+      }
+      loadConversations() // 刷新左侧最近消息
+    }
+  })
 }
 
-// ✅ 新增：删除当前聊天会话
 const deleteConversation = async () => {
   if (!currentRoomId.value) return
   
   try {
-    // 请求后端软删除
     await API.delete(`/messages/${currentRoomId.value}`)
     
-    // 清空当前右侧的聊天界面状态
     currentRoomId.value = null
     currentOpponent.value = null
     messages.value = []
     
-    // 重新加载左侧列表（此时被删的聊天因为聚合查询过滤，会自动消失）
     await loadConversations()
     
-    // 如果左侧还有其他聊天，自动选中第一个
     if (conversationList.value.length > 0) {
       selectRoom(conversationList.value[0])
     }

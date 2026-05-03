@@ -75,6 +75,16 @@ const userSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now
+  },
+  // ========== 管理员相关字段 ==========
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user'
+  },
+  bannedUntil: {
+    type: Date,
+    default: null
   }
 });
 

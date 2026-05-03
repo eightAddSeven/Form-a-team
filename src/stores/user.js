@@ -8,6 +8,9 @@ export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem('token') || '')
   const isLoggedIn = computed(() => !!token.value && !!userInfo.value)
   
+  // 管理员判断（新增）
+  const isAdmin = computed(() => userInfo.value?.role === 'admin')
+
   // 设置用户信息
   const setUserInfo = (info) => {
     userInfo.value = info
@@ -28,30 +31,31 @@ export const useUserStore = defineStore('user', () => {
     }
   }
   
-  // 登录
-const login = async (username, password) => {
-  try {
-    const response = await authAPI.login({ username, password })
-    const { token, user } = response.data
+  // 登录（已修改，确保 role 字段保存）
+  const login = async (username, password) => {
+    try {
+      const response = await authAPI.login({ username, password })
+      const { token, user } = response.data
 
-    // 确保用户信息中包含 _id 字段（后端可能返回 id 或 _id）
-    const userInfo = {
-      ...user,
-      _id: user._id || user.id
-    }
+      // 确保用户信息中包含 _id 和 role 字段
+      const userInfoData = {
+        ...user,
+        _id: user._id || user.id,
+        role: user.role || 'user'       // 新增，防止后端未返回 role
+      }
 
-    setToken(token)
-    setUserInfo(userInfo)
+      setToken(token)
+      setUserInfo(userInfoData)
 
-    return { success: true, data: response.data }
-  } catch (error) {
-    console.error('登录失败:', error)
-    return { 
-      success: false, 
-      error: error.response?.data?.message || '登录失败，请检查用户名和密码' 
+      return { success: true, data: response.data }
+    } catch (error) {
+      console.error('登录失败:', error)
+      return { 
+        success: false, 
+        error: error.response?.data?.message || '登录失败，请检查用户名和密码' 
+      }
     }
   }
-}
   
   // 注册
   const register = async (userData) => {
@@ -71,7 +75,6 @@ const login = async (username, password) => {
   const logout = () => {
     setToken('')
     setUserInfo(null)
-    // 可以在这里添加路由跳转
     window.location.href = '/'
   }
   
@@ -85,7 +88,6 @@ const login = async (username, password) => {
       return { success: true, data: response.data }
     } catch (error) {
       console.error('获取用户信息失败:', error)
-      // token 失效，清除登录状态
       if (error.response?.status === 401) {
         logout()
       }
@@ -126,6 +128,7 @@ const login = async (username, password) => {
     userInfo,
     token,
     isLoggedIn,
+    isAdmin,           // 新增
     
     // 方法
     setUserInfo,
