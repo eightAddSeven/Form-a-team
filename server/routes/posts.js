@@ -58,16 +58,30 @@ router.get('/', async (req, res) => {
       .limit(limit)
       .lean()
 
-    const responsePosts = posts.map(post => ({
-      ...post,
-      id: post._id,
-      createTime: post.createdAt,
-      likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
-      comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
-      tags: Array.isArray(post.tags) ? post.tags : [],
-      isLiked: false,
-      isCollected: false
-    }))
+    // 💡 修改1：动态判断点赞状态
+    let currentUserId = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+        currentUserId = decoded.userId;
+      } catch (e) { /* 未登录或Token无效，静默失败 */ }
+    }
+
+    const responsePosts = posts.map(post => {
+      const likesArray = Array.isArray(post.likes) ? post.likes : [];
+      return {
+        ...post,
+        id: post._id,
+        createTime: post.createdAt,
+        likes: likesArray.length,
+        comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
+        tags: Array.isArray(post.tags) ? post.tags : [],
+        isLiked: currentUserId ? likesArray.some(id => id.toString() === currentUserId.toString()) : false,
+        isCollected: false
+      };
+    });
     
     res.json({
       posts: responsePosts,
@@ -100,16 +114,30 @@ router.get('/user/:userId', async (req, res) => {
     
     const total = await Post.countDocuments({ author: req.params.userId, status: 'published' })
     
-    const responsePosts = posts.map(post => ({
-      ...post,
-      id: post._id,
-      createTime: post.createdAt,
-      likes: Array.isArray(post.likes) ? post.likes.length : (post.likes || 0),
-      comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
-      tags: Array.isArray(post.tags) ? post.tags : [],
-      isLiked: false,
-      isCollected: false
-    }))
+    // 💡 修改2：动态判断点赞状态
+    let currentUserId = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+        currentUserId = decoded.userId;
+      } catch (e) {}
+    }
+
+    const responsePosts = posts.map(post => {
+      const likesArray = Array.isArray(post.likes) ? post.likes : [];
+      return {
+        ...post,
+        id: post._id,
+        createTime: post.createdAt,
+        likes: likesArray.length,
+        comments: Array.isArray(post.comments) ? post.comments.length : (post.comments || 0),
+        tags: Array.isArray(post.tags) ? post.tags : [],
+        isLiked: currentUserId ? likesArray.some(id => id.toString() === currentUserId.toString()) : false,
+        isCollected: false
+      };
+    });
     
     res.json({
       posts: responsePosts,
@@ -198,8 +226,21 @@ router.get('/:id', async (req, res) => {
 
     await Post.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
 
+    // 💡 修改3：动态判断点赞状态
+    let currentUserId = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+        currentUserId = decoded.userId;
+      } catch (e) {}
+    }
+
     const commentsArray = Array.isArray(post.comments) ? post.comments : []
     const likesArray = Array.isArray(post.likes) ? post.likes : []
+    
+    const isLiked = currentUserId ? likesArray.some(id => id.toString() === currentUserId.toString()) : false;
 
     res.json({
       ...post,
@@ -209,7 +250,7 @@ router.get('/:id', async (req, res) => {
       commentCount: commentsArray.length,
       likes: likesArray,
       likeCount: likesArray.length,
-      isLiked: false,
+      isLiked: isLiked, 
       isCollected: false
     })
   } catch (error) {
@@ -342,64 +383,47 @@ router.post('/:id/collect', auth, async (req, res) => {
   }
 })
 
-// 热搜榜单（按实时计算热度排序）
+// 热搜榜单
 router.get('/hot-rank/list', async (req, res) => {
   try {
-    const { limit = 8 } = req.query;
-    const numLimit = parseInt(limit);
+    const { limit = 8 } = req.query
 
-    // 取出所有已发布的帖子（只取必要字段）
-    const allPosts = await Post.find({ status: 'published' })
-      .select('_id title views likes comments createdAt author')
+    const hotPosts = await Post.find({ status: 'published' })
+      .select('_id title heatScore views likes comments createdAt author')
       .populate('author', 'nickname avatar role')
-      .lean();
+      .sort({ heatScore: -1, createdAt: -1 })
+      .limit(parseInt(limit))
+      .lean()
 
-    // 为每个帖子计算实时热度
-    const postsWithHeat = allPosts.map(post => {
-      const calculation = Post.calculateHeatScore(post);
+    const rankedPosts = hotPosts.map((post, index) => {
+      const calculation = Post.calculateHeatScore(post)
       return {
-        ...post,
+        rank: index + 1,
+        postId: post._id,
+        title: post.title || '无标题',
+        author: post.author,
         heat: calculation.heatScore,
-        heatMetrics: calculation.heatMetrics
-      };
-    });
-
-    // 按实时热度降序排序，相同热度再按时间降序
-    postsWithHeat.sort((a, b) => {
-      if (b.heat !== a.heat) return b.heat - a.heat;
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
-
-    // 取前 N 条
-    const topPosts = postsWithHeat.slice(0, numLimit);
-
-    // 格式化输出
-    const rankedPosts = topPosts.map((post, index) => ({
-      rank: index + 1,
-      postId: post._id,
-      title: post.title || '无标题',
-      author: post.author,
-      heat: post.heat,
-      heatMetrics: post.heatMetrics,
-      stats: {
-        views: post.views || 0,
-        likes: post.likes?.length || 0,
-        comments: post.comments?.length || 0
-      },
-      createdAt: post.createdAt,
-      url: `/post/${post._id}`
-    }));
+        heatMetrics: calculation.heatMetrics,
+        stats: {
+          views: post.views || 0,
+          likes: post.likes?.length || 0,
+          comments: post.comments?.length || 0
+        },
+        createdAt: post.createdAt,
+        url: `/post/${post._id}`
+      }
+    })
 
     res.json({
       success: true,
       data: rankedPosts,
       updateTime: new Date().toISOString()
-    });
+    })
   } catch (err) {
-    console.error('获取热搜榜单失败:', err);
-    res.status(500).json({ success: false, data: [], error: err.message });
+    console.error('获取热搜榜单失败:', err)
+    res.status(500).json({ success: false, data: [], error: err.message })
   }
-});
+})
 
 // 删除评论
 router.delete('/:id/comments/:commentId', auth, async (req, res) => {
