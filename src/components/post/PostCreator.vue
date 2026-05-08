@@ -23,7 +23,7 @@
       <input 
         type="text" 
         v-model="title"
-        placeholder="请输入标题（可选）"
+        placeholder="请输入标题（必选）"
         class="title-input"
         maxlength="100"
       />
