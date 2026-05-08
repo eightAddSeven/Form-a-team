@@ -17,11 +17,6 @@
       />
     </div>
     
-    <div class="card-footer">
-      <a href="#" class="more-link" @click.prevent="handleViewMore">
-        查看更多热搜 >
-      </a>
-    </div>
   </div>
 </template>
 

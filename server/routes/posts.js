@@ -342,47 +342,64 @@ router.post('/:id/collect', auth, async (req, res) => {
   }
 })
 
-// 热搜榜单
+// 热搜榜单（按实时计算热度排序）
 router.get('/hot-rank/list', async (req, res) => {
   try {
-    const { limit = 8 } = req.query
+    const { limit = 8 } = req.query;
+    const numLimit = parseInt(limit);
 
-    const hotPosts = await Post.find({ status: 'published' })
-      .select('_id title heatScore views likes comments createdAt author')
+    // 取出所有已发布的帖子（只取必要字段）
+    const allPosts = await Post.find({ status: 'published' })
+      .select('_id title views likes comments createdAt author')
       .populate('author', 'nickname avatar role')
-      .sort({ heatScore: -1, createdAt: -1 })
-      .limit(parseInt(limit))
-      .lean()
+      .lean();
 
-    const rankedPosts = hotPosts.map((post, index) => {
-      const calculation = Post.calculateHeatScore(post)
+    // 为每个帖子计算实时热度
+    const postsWithHeat = allPosts.map(post => {
+      const calculation = Post.calculateHeatScore(post);
       return {
-        rank: index + 1,
-        postId: post._id,
-        title: post.title || '无标题',
-        author: post.author,
+        ...post,
         heat: calculation.heatScore,
-        heatMetrics: calculation.heatMetrics,
-        stats: {
-          views: post.views || 0,
-          likes: post.likes?.length || 0,
-          comments: post.comments?.length || 0
-        },
-        createdAt: post.createdAt,
-        url: `/post/${post._id}`
-      }
-    })
+        heatMetrics: calculation.heatMetrics
+      };
+    });
+
+    // 按实时热度降序排序，相同热度再按时间降序
+    postsWithHeat.sort((a, b) => {
+      if (b.heat !== a.heat) return b.heat - a.heat;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // 取前 N 条
+    const topPosts = postsWithHeat.slice(0, numLimit);
+
+    // 格式化输出
+    const rankedPosts = topPosts.map((post, index) => ({
+      rank: index + 1,
+      postId: post._id,
+      title: post.title || '无标题',
+      author: post.author,
+      heat: post.heat,
+      heatMetrics: post.heatMetrics,
+      stats: {
+        views: post.views || 0,
+        likes: post.likes?.length || 0,
+        comments: post.comments?.length || 0
+      },
+      createdAt: post.createdAt,
+      url: `/post/${post._id}`
+    }));
 
     res.json({
       success: true,
       data: rankedPosts,
       updateTime: new Date().toISOString()
-    })
+    });
   } catch (err) {
-    console.error('获取热搜榜单失败:', err)
-    res.status(500).json({ success: false, data: [], error: err.message })
+    console.error('获取热搜榜单失败:', err);
+    res.status(500).json({ success: false, data: [], error: err.message });
   }
-})
+});
 
 // 删除评论
 router.delete('/:id/comments/:commentId', auth, async (req, res) => {

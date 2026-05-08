@@ -24,6 +24,8 @@
         :items="hotSearchList" 
         @itemClick="handleHotSearchClick"
       />
+      <!-- 补充空状态提示 -->
+      <div v-if="hotSearchList.length === 0" style="text-align: center; color: #94a3b8; padding: 20px 0;">暂无热搜数据</div>
       <!-- <TopicTags 
         :tags="hotTopics" 
         @tagClick="handleTopicClick"
@@ -50,7 +52,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { usePostStore } from '@/stores/post'
-import { postAPI, searchAPI } from '@/api'   // 导入 postAPI
+import { postAPI, searchAPI } from '@/api'   // 保留原有导入
 import { ElMessage } from 'element-plus'
 import PostCreator from '@/components/post/PostCreator.vue'
 import PostList from '@/components/post/PostList.vue'
@@ -79,7 +81,7 @@ const recommendUsers = ref([
 // 获取热搜榜单（真实帖子数据）
 const fetchHotSearch = async () => {
   try {
-    const response = await postAPI.getHotRank({ limit: 8 })
+    const response = await postAPI.getHotRank({ limit: 10 })
     if (response.data && response.data.success) {
       hotSearchList.value = response.data.data || []
     } else {
@@ -88,8 +90,8 @@ const fetchHotSearch = async () => {
   } catch (error) {
     console.error('获取热搜榜单失败:', error)
     hotSearchList.value = []
-    // 可选：提示错误
-    // ElMessage.error('热搜加载失败')
+    // 取消注释，增加错误提示
+    ElMessage.error('热搜加载失败')
   }
 }
 
@@ -149,11 +151,19 @@ const handleLike = async (post) => {
   const result = await postStore.likePost(postId)
   if (result.success) {
     ElMessage.success(result.isLiked ? '点赞成功' : '取消点赞')
+  } else {
+    // 补充错误提示
+    ElMessage.error(result.error || '操作失败')
   }
 }
 
 const handleComment = (post) => {
   const postId = post.id || post._id
+  // 增加 postId 空值判断
+  if (!postId) {
+    ElMessage.error('帖子信息有误')
+    return
+  }
   router.push(`/post/${postId}#comments`)
 }
 
@@ -177,6 +187,9 @@ const handleCollect = async (post) => {
   const result = await postStore.collectPost(postId)
   if (result.success) {
     ElMessage.success(result.isCollected ? '收藏成功' : '取消收藏')
+  } else {
+    // 也补充 collect 的错误提示（可选，但为了一致性）
+    ElMessage.error(result.error || '操作失败')
   }
 }
 
@@ -207,7 +220,7 @@ const followUser = (user) => {
 onMounted(async () => {
   await postStore.fetchPosts({ page: 1, tab: 'latest', category: 'all' })
   fetchHotSearch()
-  fetchHotTags()
+  fetchHotTags()  // 保留原有调用
 
   // 每分钟刷新热搜榜
   hotSearchTimer = setInterval(() => {
@@ -223,7 +236,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 样式保持不变，此处省略，与原文件相同 */
 .main-layout { display: flex; gap: 24px; }
 .left-content { flex: 4; display: flex; flex-direction: column; gap: 24px; }
 .right-sidebar { flex: 1; display: flex; flex-direction: column; gap: 20px; }

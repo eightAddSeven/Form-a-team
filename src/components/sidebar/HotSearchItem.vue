@@ -6,9 +6,12 @@
     
     <div class="hot-content">
       <span class="hot-title">{{ item.title }}</span>
-      <span class="hot-heat">
-        <span class="heat-icon">🔥</span> {{ formatHeat(item.heat) }}
-      </span>
+      <div class="hot-meta">
+        <span class="hot-author" v-if="item.author">@{{ item.author.nickname || item.author.username || '匿名' }}</span>
+        <span class="hot-heat">
+          <span class="heat-icon">🔥</span> {{ formatHeat(item.heat) }}
+        </span>
+      </div>
     </div>
     
     <span class="hot-tag" v-if="item.tag" :class="getTagClass(item.tag)">
@@ -89,6 +92,18 @@ const getTagClass = (tag) => {
   font-size: 14px;
   color: #1e293b;
   font-weight: 500;
+}
+
+/* 新增：作者和热度一行 */
+.hot-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hot-author {
+  font-size: 12px;
+  color: #64748b;
 }
 
 .hot-heat {
