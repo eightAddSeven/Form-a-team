@@ -268,6 +268,7 @@ const createCustomTag = () => {
     }
     selectedTags.value.push(customTag)
     emit('update:modelValue', selectedTags.value)
+    emit('change', selectedTags.value)
   }
   
   searchKeyword.value = ''
